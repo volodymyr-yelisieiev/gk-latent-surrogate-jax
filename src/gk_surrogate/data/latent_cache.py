@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -28,6 +29,7 @@ class LatentCacheWriter:
     latent_dim: int
     config_yaml: str = ""
     encoder_checkpoint_path: str = ""
+    protocol_metadata: Mapping[str, object] | None = None
 
     def __post_init__(self) -> None:
         path = Path(self.path)
@@ -37,8 +39,14 @@ class LatentCacheWriter:
             metadata.attrs["latent_dim"] = self.latent_dim
             metadata.attrs["config_yaml"] = self.config_yaml
             metadata.attrs["encoder_checkpoint_path"] = self.encoder_checkpoint_path
+            metadata.attrs["protocol_json"] = json.dumps(
+                dict(self.protocol_metadata or {}),
+                ensure_ascii=True,
+                separators=(",", ":"),
+                sort_keys=True,
+            )
             metadata.attrs["created_at"] = datetime.now(UTC).isoformat()
-            handle.create_group("trajectories")
+            handle.create_group("trajectories", track_order=True)
 
     def write_trajectory(
         self,
@@ -50,6 +58,9 @@ class LatentCacheWriter:
         flux: np.ndarray | None = None,
         spectra: Mapping[str, np.ndarray] | None = None,
     ) -> None:
+        if not trajectory_id:
+            msg = "trajectory_id must be non-empty"
+            raise ValueError(msg)
         z = np.asarray(z, dtype=np.float32)
         if z.ndim != 2 or z.shape[1] != self.latent_dim:
             msg = f"expected z shape [T, {self.latent_dim}], got {z.shape}"
@@ -151,6 +162,12 @@ class LatentCacheDataset:
         context_length: int,
         prediction_length: int,
     ) -> tuple[np.ndarray, np.ndarray, DiagnosticTargets]:
+        if start < 0:
+            msg = "sequence window start must be non-negative"
+            raise ValueError(msg)
+        if context_length < 1 or prediction_length < 1:
+            msg = "context_length and prediction_length must be positive"
+            raise ValueError(msg)
         stop_context = start + context_length
         stop_target = stop_context + prediction_length
         with h5py.File(self.path, "r") as handle:

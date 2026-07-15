@@ -1,0 +1,26 @@
+\cleardoubleoddpage
+\chapter{Conclusion}
+\label{chap:conclusion}
+
+This thesis developed and audited a compact latent time-series surrogate for preprocessed
+five-dimensional gyrokinetic turbulence snapshots. The JAX/Flax pipeline covers data inspection,
+conservative augmentation, joint representation and diagnostic training, latent caching, multiple
+temporal models, recursive rollout, trajectory-balanced metrics, and artifact provenance. A
+synthetic fallback and extensive verification suite make the software testable without private data
+or GPU hardware.
+
+The final experiment uses one canonical trajectory split from representation learning through
+evaluation. The cache-normalized Transformer was selected as the best learned model on validation
+flux RMSE and then evaluated once on a locked test split. It obtains flux RMSE 11.4255, compared with
+11.9889 for persistence, reducing the primary point estimate by 4.70\%. Flux MAE, latent MSE, and
+spectra relative error also decrease. The model improves per-trajectory flux RMSE in three of five
+cases, but the paired interval includes zero; the experiment therefore supports a bounded
+single-protocol improvement rather than a significance or general-superiority claim.
+
+The result is bounded but useful. It shows that the selected representation and training budget can
+improve on a strong temporal baseline in one locked comparison, and it identifies encoder fidelity,
+repeated matched seeds, and strict validation-only selection as priorities for
+future work. The thesis makes no claim about full-field reconstruction, long-term forecasting,
+broad gyrokinetic generalization, solver speedup, or superiority to GyroSwin. Its main contribution
+is a reproducible and leakage-resistant experimental foundation on which those questions can be
+tested credibly.

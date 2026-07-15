@@ -1,66 +1,52 @@
 # Thesis Result Set
 
-Evidence reviewed: 2026-07-15.
+## Tier 1: Clean Medium-Scale Result
 
-This file separates result tiers so thesis writing does not mix engineering validation,
-small validation, medium runs, and protocol-level comparisons.
+The accepted medium result uses one trajectory protocol across encoder, cache, sequence
+training, validation selection, and locked testing:
 
-## Tier 1: Thesis-Scale Medium Evidence
+- data split seed `52`;
+- validation manifest `94fa0f9184913ba30a99778e4cc5916fdae748d355fed26988e9fb97a0f293df`;
+- test manifest `519a2b02e5f9bff8604a3cd28d12264333b95306be64b7619803d0e96772d012`;
+- five trajectories and 40 rollout windows per evaluation split;
+- horizon `8`, trajectory-balanced aggregation.
 
-Use this as the main quantitative sequence-model comparison.
+Validation selected the cache-normalized causal transformer as the strongest learned
+candidate (`18.179277` flux RMSE), although persistence was lower (`17.755674`). On the
+locked test, persistence reached flux RMSE `11.988926`; the selected transformer reached
+`11.425478`, a `4.70%` reduction in the primary point estimate.
 
-| evidence | role | trace |
-| --- | --- | --- |
-| Medium rollout comparison | main result table | `docs/medium_guppy_experiment_report.md` |
-| Best model | current model selection | `docs/current_best_model.md` |
-| W&B group | current external experiment evidence | `medium-scale-latent-surrogate` in project `gk-latent-surrogate` |
+The transformer also improves flux MAE (`10.257084` versus `10.761940`), spectra relative
+L2 (`19.168613` versus `19.525700`), and latent MSE (`0.073825` versus `0.101896`). It
+improves per-trajectory flux RMSE on three of five trajectories. The paired 95% t interval
+for the mean per-trajectory difference includes zero, so the result is not a significance
+or general-equivalence claim.
 
-Main result:
+Sources: `docs/medium_guppy_experiment_report.md`, local artifacts under
+`outputs/medium_seed52_reproduction/`. W&B links are recorded in `docs/wandb_tracking.md`.
 
-- cache-normalized from-scratch latent transformer;
-- test split, 8-step rollout horizon;
-- flux RMSE `9.2270`;
-- source `outputs/verified_medium/transformer_normalized/metrics.json`;
-- evidence scope: locally re-evaluated artifact set; no active W&B run mirrors this exact
-  main-cache table.
+## Tier 2: Standalone Diagnostic Evidence
 
-Current W&B evidence is listed separately in `docs/medium_guppy_experiment_report.md`.
-The validation sensitivity comparison and pretrained-SFT test run use different protocols
-and do not replace the `9.2270` verified main-cache result.
+Representation plots, frozen diagnostic heads, and the seed-62 pretrained-SFT run are
+separate evidence. They do not replace or combine with the clean seed-52 locked test.
 
-## Tier 2: Small Validation Evidence
+## Tier 3: Engineering Validation
 
-Use this tier for validation flux RMSE and representation-structure evidence.
+Synthetic smoke runs, one-trajectory checks, real-data smoke configurations, and
+historical mixed-seed outputs establish implementation behavior only.
 
-| evidence | role | trace |
-| --- | --- | --- |
-| validation flux-head run | validation flux RMSE | `docs/small_validation_experiment.md` |
-| PCA plot colored by flux | representation inspection | `outputs/server_plot_representation_small/plots/pca_flux.png` |
-| t-SNE plots colored by flux | representation inspection | `outputs/server_plot_representation_small/plots/tsne_perplexity_*_flux.png` |
-| persistence and transformer rollouts | small-run baseline comparison | `docs/small_validation_experiment.md` |
+The former flux-RMSE claim `9.2270` remains invalidated: its encoder and downstream
+trajectory splits differed, causing representation leakage. It must not appear as an
+accepted thesis result.
 
-Small validation is not the medium thesis-scale table. Keep it as a separate validation
-evidence tier.
+## Tier 4: Related Work
 
-## Tier 3: Engineering Validation Evidence
+GyroSwin remains related work unless dataset, split, horizon, metric definitions,
+normalization, checkpoint provenance, and aggregation are made directly comparable.
 
-Use only for implementation confidence:
+## Provenance Limitation
 
-- synthetic smoke pipeline;
-- one-trajectory pipeline validation;
-- real-data smoke configs;
-- server/KvikIO inspection outputs.
-
-These establish that the pipeline runs. They should not be used as headline scientific
-results.
-
-## Tier 4: Protocol-Level Related Work
-
-GyroSwin remains protocol-level unless matching materials arrive.
-
-Direct comparison requires the same or explicitly documented dataset, split, horizon,
-metric definitions, normalization, and checkpoint/config provenance. Until then, cite
-GyroSwin as related work or a comparison target, not as a numeric baseline.
-
-Claim boundaries and limitations are maintained in `docs/final_claims.md`; this file only
-defines evidence tiers.
+Training artifacts record clean tracked source commit
+`f97a0257d7627c8ff8960433aed30c750a9f90d5`; final test evaluations record
+`280540f54e67c0dbcae253327596bfaf7cbf9307`. The latter has the SHA-256 of an empty
+tracked diff. Its dirty flag is solely due to the separately packaged untracked thesis tree.

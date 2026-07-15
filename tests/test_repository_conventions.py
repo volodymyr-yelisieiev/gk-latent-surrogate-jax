@@ -26,6 +26,7 @@ def test_valid_pull_request_titles(title: str) -> None:
     (
         "[fix] preserve trajectory weighting",
         "agent: polish repository",
+        "docs: summarize supervisor call",
         "docs: document phase 7 results",
         "docs: update report 2026-07-15",
         "docs: end with punctuation.",

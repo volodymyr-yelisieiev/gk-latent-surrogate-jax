@@ -114,10 +114,15 @@ def write_synthetic_h5(
     for trajectory_id in dataset.trajectory_ids():
         path = output / f"{trajectory_id}.h5"
         with h5py.File(path, "w") as handle:
-            data_group = handle.create_group(schema.data_group)
-            metadata_group = handle.create_group(schema.metadata_group)
+            data_group = handle.require_group(schema.data_group)
+            handle.require_group(schema.metadata_group)
             timesteps = np.arange(dataset.num_timesteps(trajectory_id), dtype=np.float32)
-            metadata_group.create_dataset("timesteps", data=timesteps)
+            _create_diagnostic_dataset(
+                handle,
+                schema.timestep_key or "timesteps",
+                schema.metadata_group,
+                timesteps,
+            )
             flux_rows = []
             spectra_rows = {name: [] for name in synthetic_config.spectra_dims}
             for timestep in range(dataset.num_timesteps(trajectory_id)):
@@ -132,9 +137,19 @@ def write_synthetic_h5(
                 for name in spectra_rows:
                     spectra_rows[name].append(sample.targets.spectra[name])
             if flux_rows:
-                metadata_group.create_dataset("fluxes", data=np.asarray(flux_rows, dtype=np.float32))
+                _create_diagnostic_dataset(
+                    handle,
+                    schema.flux_key or "fluxes",
+                    schema.metadata_group,
+                    np.asarray(flux_rows, dtype=np.float32),
+                )
             for name, rows in spectra_rows.items():
-                metadata_group.create_dataset(f"{name}_spectrum", data=np.asarray(rows, dtype=np.float32))
+                _create_diagnostic_dataset(
+                    handle,
+                    schema.spectra_keys.get(name, f"{name}_spectrum"),
+                    schema.metadata_group,
+                    np.asarray(rows, dtype=np.float32),
+                )
         written.append(path)
     return written
 
@@ -143,6 +158,18 @@ def _select_channels(x: np.ndarray, channel_indices: tuple[int, ...] | None) -> 
     if channel_indices is None:
         return x
     return x[np.asarray(channel_indices, dtype=np.int64)]
+
+
+def _create_diagnostic_dataset(
+    handle: h5py.File,
+    key: str,
+    metadata_group: str,
+    values: np.ndarray,
+) -> None:
+    path = key if "/" in key else f"{metadata_group}/{key}"
+    parent_path, _, dataset_name = path.rpartition("/")
+    parent = handle.require_group(parent_path) if parent_path else handle
+    parent.create_dataset(dataset_name, data=values)
 
 
 def _load_input_fields(

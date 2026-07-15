@@ -1,0 +1,178 @@
+\cleardoubleoddpage
+\chapter{Method}
+\label{chap:method}
+
+\section{Pipeline Overview}
+
+\autoref{fig:pipeline} summarizes the proposed two-stage surrogate. The encoder is trained first and
+then frozen. It converts every trajectory into a latent cache. Sequence models are trained only on
+windows from this cache. During evaluation, predicted latents are passed through the frozen
+diagnostic heads so that temporal errors can be measured in flux and spectra space.
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=0.95\textwidth]{pipeline_diagram.png}
+  \caption{Latent-surrogate pipeline. A five-dimensional snapshot is embedded into a compact
+  vector, evolved autoregressively, and evaluated through latent and diagnostic metrics.}
+  \label{fig:pipeline}
+\end{figure}
+
+This staged design prevents file layout and spatial tensor size from leaking into the sequence
+model. It also guarantees that all temporal baselines in a comparison use the same representation.
+
+\section{Data Contract and Splitting}
+
+A single snapshot has shape
+\begin{equation}
+  x_t \in \mathbb{R}^{C\times S_1\times S_2\times S_3\times S_4\times S_5},
+\end{equation}
+and a batch has shape
+\begin{equation}
+  X \in \mathbb{R}^{B\times C\times S_1\times S_2\times S_3\times S_4\times S_5}.
+\end{equation}
+The validated Cyclone snapshot shape is $(4,32,8,16,85,32)$ before batching. All adapters convert
+samples to \code{float32} at the model boundary. The channel-first contract is validated rather
+than inferred, because an unnoticed axis permutation would still be numerically executable but
+scientifically invalid.
+
+The Cyclone adapter loads a field snapshot at raw index $r$ and attaches flux and spectra from
+$r+b$, where the configured bundle offset is $b=1$. Retained field snapshots are separated by the
+subsampling stride of eight raw indices. Consequently, the diagnostic head learns
+$z(r)\mapsto y(r+1)$, and the diagnostic reported for rollout horizon $h$ corresponds to the target
+attached to the predicted retained state, $y(r+8h+1)$. Throughout the thesis, ``flux at horizon
+$h$'' refers to this attached diagnostic target rather than a value at exactly the field index.
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=0.95\textwidth]{data_contract_diagram.png}
+  \caption{Data and latent-cache contracts. Splits are defined at trajectory level so overlapping
+  windows from one trajectory cannot appear in both training and evaluation.}
+  \label{fig:data-contract}
+\end{figure}
+
+Trajectories are deterministically shuffled using a fixed seed and assigned with ratios
+$0.8/0.1/0.1$. For the medium cache this produces 41 training, five validation, and five test
+trajectories. Each trajectory contains 23 retained time steps, giving 1,173 latent vectors. Splitting
+before window construction is essential: randomly splitting overlapping windows would leak nearly
+identical temporal contexts across partitions.
+
+For context length $T_c$ and prediction length $T_p$, a valid window begins at any index
+$i\in\{0,\ldots,T-T_c-T_p\}$. The principal sequence experiment uses $T_c=8$ for one-step training
+and recursive evaluation over $T_r=8$ forecast steps.
+
+\section{Snapshot Encoder}
+
+The selected encoder is a five-dimensional pointwise convolutional hierarchy. The input channel
+axis is moved to the end for Flax operations. Each of three stages first subsamples the five spatial
+axes and then applies a learned pointwise projection with 8, 16, and 32 output channels. The stride
+vectors are
+\begin{align}
+  (2,2,2,4,2),\quad (2,1,2,4,2),\quad (2,1,1,2,2).
+\end{align}
+GELU activations follow each projection. Global mean pooling over all remaining spatial positions
+produces one vector, and a dense layer maps it to $z_t\in\mathbb{R}^{128}$.
+
+The $1^5$ kernels make this architecture computationally tractable for the large input tensor. Its
+spatial mixing comes primarily from subsampling and global pooling rather than wide convolutional
+kernels. This is an engineering baseline, not a claim that pointwise operations optimally represent
+gyrokinetic geometry.
+
+\section{Representation Objective}
+
+Two augmented views are sampled independently from a snapshot. The enabled transforms are Gaussian
+noise with relative scale $0.01$, amplitude jitter of $0.02$, and element masking with probability
+$0.02$. Let $g$ be a two-layer projection head and $h$ a prediction head. The symmetric SimSiam loss
+is
+\begin{equation}
+  \mathcal{L}_{\mathrm{Siam}}
+  =\frac{1}{2}\left[-\cos\left(h(g(f(x^{(1)}))),\operatorname{sg}(g(f(x^{(2)})))\right)
+  -\cos\left(h(g(f(x^{(2)}))),\operatorname{sg}(g(f(x^{(1)})))\right)\right],
+\end{equation}
+where $\operatorname{sg}$ denotes stop-gradient.
+
+The latent vector is also passed to independent diagnostic heads. Each head contains a 256-unit
+hidden layer and predicts scalar flux or a 32-bin spectrum. With mean squared diagnostic losses,
+the encoder objective is
+\begin{equation}
+  \mathcal{L}_{\mathrm{enc}}
+  = \mathcal{L}_{\mathrm{flux}}
+  + \mathcal{L}_{\mathrm{spectra}}
+  + 0.5\,\mathcal{L}_{\mathrm{Siam}}.
+\end{equation}
+Both spectra, \code{kyspec} and \code{fluxspec}, are used in the spectra term. The diagnostic heads
+make the representation task-aware, while the Siamese term encourages consistency under the small
+perturbations shown in \autoref{fig:encoder-objective}.
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=0.92\textwidth]{encoder_objective_diagram.png}
+  \caption{Joint encoder training objective: two conservative augmented views are aligned with a
+  stop-gradient Siamese objective, while flux and spectra heads retain diagnostic information.}
+  \label{fig:encoder-objective}
+\end{figure}
+
+\section{Latent Cache}
+
+After encoder training, every trajectory is embedded once. The HDF5 cache stores $z_t$, timestep
+indices, physical time when available, flux, spectra, the encoder checkpoint path, and the resolved
+configuration. This immutable boundary has two benefits: temporal models can be iterated without
+re-reading five-dimensional fields, and all compared sequence models receive identical inputs.
+
+For cache normalization, the mean $\mu_z$ and standard deviation $\sigma_z$ are computed from the
+training trajectories only. Sequence learning then uses
+\begin{equation}
+  \tilde z_t = \frac{z_t-\mu_z}{\sigma_z+\epsilon},\qquad \epsilon=10^{-6}.
+\end{equation}
+Predictions are transformed back before the frozen diagnostic heads are evaluated. Restricting the
+statistics to the training split prevents test information from entering preprocessing.
+
+\section{Sequence Models}
+
+\subsection{Persistence}
+
+The persistence baseline predicts
+\begin{equation}
+  \hat z_{t+1}=z_t
+\end{equation}
+and repeats this value during recursive rollout. It is difficult to beat when adjacent states change
+slowly, making it a necessary baseline for short-horizon dynamics.
+
+\subsection{GRU}
+
+The recurrent baseline uses one GRU layer with hidden width 256 and a dense output projection to
+128 dimensions. It consumes the eight context latents sequentially and predicts the next latent
+from the final hidden state.
+
+\subsection{Causal Transformer}
+
+The selected Transformer projects each 128-dimensional latent to width 256, adds learned positional
+embeddings, and applies three pre-normalized causal self-attention blocks. Each block has four
+attention heads and an MLP expansion ratio of four. The normalized final context token is projected
+back to 128 dimensions. Dropout is zero in the medium experiment.
+
+All learned sequence models minimize a latent objective combining mean squared error and cosine
+dissimilarity. Adam-style optimization uses learning rate $10^{-3}$, weight decay $10^{-4}$, a
+25-step warmup, and gradient-norm clipping at one. Models are trained for 500 update steps.
+
+\section{Autoregressive Evaluation}
+
+Given true context $z_{t-T_c+1:t}$, the model predicts $\hat z_{t+1}$. The context window is shifted,
+the prediction is appended, and the procedure is repeated for eight steps. The persistence baseline
+uses the same window construction. For latent prediction $\hat Z$ and target $Z$, the principal
+latent metric is
+\begin{equation}
+  \mathrm{MSE}_{z}=\frac{1}{BT_rD}\lVert \hat Z-Z\rVert_2^2.
+\end{equation}
+
+Flux RMSE is computed after applying the frozen flux head $d_f$:
+\begin{equation}
+  \mathrm{RMSE}_{f}=\sqrt{\frac{1}{BT_r}\sum_{b=1}^{B}\sum_{k=1}^{T_r}
+  \left(d_f(\hat z_{b,k})-f_{b,k}\right)^2}.
+\end{equation}
+Spectra MSE, log-MSE, relative $L_2$, and shape correlation are reported as secondary diagnostics.
+A rollout is stable when every predicted value is finite.
+
+Overlapping windows can cause long trajectories to dominate a sample-weighted aggregate. The
+verified evaluation first computes metrics per trajectory and then gives each test trajectory equal
+weight. Dispersion therefore represents between-trajectory variation. Horizons are one-based in
+reports, so horizon one denotes the first predicted state.

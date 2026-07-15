@@ -6,7 +6,7 @@ or invent reference numbers inside this project.
 
 ## Current Status
 
-As of 2026-07-15, no matching GyroSwin checkpoint/config/evaluation bundle is available
+No matching GyroSwin checkpoint/config/evaluation bundle is available
 for this thesis split. Keep GyroSwin protocol-level unless comparable materials become
 available.
 

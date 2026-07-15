@@ -31,6 +31,13 @@ def test_evaluation_rollout_helpers_and_reports(tmp_path):
     metrics = latent_rollout_metrics(persisted, jnp.ones((2, 2, 4)))
     assert metrics["stable"]
     assert horizon_until_threshold(metrics["mse_by_step"], 0.5) == 1
+    assert horizon_until_threshold(jnp.asarray([0.1, jnp.nan, 0.2]), 0.5) == 2
+    with pytest.raises(ValueError, match="non-empty"):
+        horizon_until_threshold(jnp.asarray([]), 0.5)
+    with pytest.raises(ValueError, match="finite and non-negative"):
+        horizon_until_threshold(jnp.asarray([0.1]), float("nan"))
+    with pytest.raises(ValueError, match="finite and non-negative"):
+        horizon_until_threshold(jnp.asarray([0.1]), -1.0)
     paths = {
         "json": save_metrics_json(metrics, tmp_path),
         "csv": save_metrics_by_step(metrics, tmp_path),
@@ -79,3 +86,14 @@ def test_relative_l2_uses_global_norm_per_trajectory_and_horizon():
     assert float(pooled["relative_l2"]) == pytest.approx(expected_pooled)
     assert float(balanced["relative_l2"]) == pytest.approx((expected_long + 2.0) / 2.0)
     assert float(balanced["relative_l2_std_by_step"][0]) == pytest.approx((2.0 - expected_long) / 2.0)
+
+
+def test_rollout_cosine_is_stable_for_zero_and_small_vectors():
+    small = jnp.asarray([[[1.0e-5, -2.0e-5, 3.0e-5]]], dtype=jnp.float32)
+    small_metrics = latent_rollout_metrics(small, small)
+    assert float(small_metrics["cosine"]) == pytest.approx(1.0, abs=1e-6)
+
+    zeros = jnp.zeros_like(small)
+    zero_metrics = latent_rollout_metrics(zeros, zeros)
+    assert float(zero_metrics["cosine"]) == pytest.approx(0.0)
+    assert np.isfinite(float(zero_metrics["cosine"]))

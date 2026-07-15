@@ -18,7 +18,12 @@ def build_dataset(config: DataConfig) -> TrajectoryDataset:
         if config.synthetic is None:
             msg = "synthetic backend requires config.synthetic"
             raise ValueError(msg)
-        return SyntheticTrajectoryDataset(config.synthetic, seed=config.seed)
+        return SyntheticTrajectoryDataset(
+            config.synthetic,
+            seed=config.seed,
+            target_spectra=config.target_spectra,
+            target_flux=config.target_flux,
+        )
     if config.backend == "h5":
         if config.h5_schema is None or config.root is None:
             msg = "h5 backend requires root and h5_schema"

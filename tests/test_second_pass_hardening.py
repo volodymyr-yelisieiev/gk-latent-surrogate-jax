@@ -1,12 +1,17 @@
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 
+import h5py
 import jax
 import jax.numpy as jnp
 import pytest
+import yaml
 
+from gk_surrogate import pipeline
 from gk_surrogate.config.load import load_config
+from gk_surrogate.data.latent_cache import LatentCacheWriter
 from gk_surrogate.evaluation import rollout as eval_rollout
 from gk_surrogate.models.encoders import (
     ConvNDEncoder,
@@ -25,6 +30,305 @@ def _snapshot_batch():
 
 def _latent_context():
     return jnp.ones((2, 3, 4), dtype=jnp.float32)
+
+
+def _write_protocol_checkpoint(tmp_path, trajectory_ids, *, seed=52, role="encoder_checkpoint"):
+    run_dir = tmp_path / role
+    checkpoint = run_dir / "checkpoints" / "step_000001"
+    checkpoint.mkdir(parents=True)
+    train_ids = pipeline.split_trajectory_ids(trajectory_ids, seed=seed)["train"]
+    config = {
+        "data": {"backend": "cyclone_kvikio", "seed": seed, "split": "train"},
+        "training": {"seed": seed + 1},
+    }
+    metrics = {
+        "protocol_version": 1,
+        "artifact_role": role,
+        "data_backend": "cyclone_kvikio",
+        "data_split": "train",
+        "data_split_seed": seed,
+        "training_seed": seed + 1,
+        "selected_trajectory_ids": list(train_ids),
+        "trajectory_manifest_sha256": pipeline._trajectory_manifest_sha256(train_ids),
+        "universe_trajectory_ids": list(trajectory_ids),
+        "universe_manifest_sha256": pipeline._trajectory_manifest_sha256(trajectory_ids),
+        "checkpoint": str(checkpoint),
+    }
+    (run_dir / "config_resolved.json").write_text(json.dumps(config), encoding="utf-8")
+    (run_dir / "metrics.json").write_text(json.dumps(metrics), encoding="utf-8")
+    return checkpoint, config, metrics
+
+
+def test_pipeline_rejects_cross_seed_cache_and_checkpoint_provenance(tmp_path):
+    cache_path = tmp_path / "latent_cache.h5"
+    LatentCacheWriter(
+        cache_path,
+        latent_dim=2,
+        config_yaml=yaml.safe_dump({"data": {"seed": 11}}),
+    )
+    with pytest.raises(ValueError, match="latent cache split seed 11"):
+        pipeline._validate_latent_cache_split_seed(cache_path, expected_seed=12)
+
+    checkpoint = tmp_path / "sequence" / "checkpoints" / "step_000001"
+    checkpoint.mkdir(parents=True)
+    (tmp_path / "sequence" / "config_resolved.json").write_text(
+        json.dumps({"data": {"seed": 21}}),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="sequence checkpoint split seed 21"):
+        pipeline._validate_checkpoint_split_seed(
+            checkpoint,
+            expected_seed=22,
+            role="sequence checkpoint",
+        )
+
+
+def test_real_checkpoint_protocol_is_fail_closed_and_manifest_bound(tmp_path):
+    trajectory_ids = ("traj-b", "traj-a", "traj-c", "traj-d")
+    checkpoint, config, metrics = _write_protocol_checkpoint(tmp_path, trajectory_ids)
+    kwargs = {
+        "expected_seed": 52,
+        "expected_backend": "cyclone_kvikio",
+        "expected_universe_ids": trajectory_ids,
+        "expected_artifact_role": "encoder_checkpoint",
+        "role": "encoder checkpoint",
+        "require_complete": True,
+    }
+    pipeline._validate_checkpoint_protocol(checkpoint, **kwargs)
+
+    metrics_path = checkpoint.parents[1] / "metrics.json"
+    metrics_path.unlink()
+    with pytest.raises(ValueError, match="missing colocated"):
+        pipeline._validate_checkpoint_protocol(checkpoint, **kwargs)
+
+    metrics_path.write_text(json.dumps(metrics), encoding="utf-8")
+    config["data"]["split"] = "all"
+    (checkpoint.parents[1] / "config_resolved.json").write_text(json.dumps(config), encoding="utf-8")
+    with pytest.raises(ValueError, match="data.split='train'"):
+        pipeline._validate_checkpoint_protocol(checkpoint, **kwargs)
+
+    config["data"]["split"] = "train"
+    (checkpoint.parents[1] / "config_resolved.json").write_text(json.dumps(config), encoding="utf-8")
+    metrics["trajectory_manifest_sha256"] = "tampered"
+    metrics_path.write_text(json.dumps(metrics), encoding="utf-8")
+    with pytest.raises(ValueError, match="training trajectory manifest"):
+        pipeline._validate_checkpoint_protocol(checkpoint, **kwargs)
+
+
+@pytest.mark.parametrize(
+    ("case", "message"),
+    [
+        ("missing_config_mapping", "missing data/training"),
+        ("config_seed", "split seed"),
+        ("config_backend", "does not match configured backend"),
+        ("missing_metric", "missing protocol fields"),
+        ("protocol_version", "unsupported protocol version"),
+        ("artifact_role", "artifact role"),
+        ("metrics_backend", "metrics backend"),
+        ("metrics_split", "required seed-52 training split"),
+        ("training_seed", "training seed differs"),
+        ("universe_ids", "trajectory universe"),
+        ("universe_manifest", "trajectory-universe manifest"),
+        ("selected_ids", "canonical training split"),
+        ("checkpoint_path", "does not identify the loaded checkpoint"),
+    ],
+)
+def test_real_checkpoint_protocol_rejects_inconsistent_metadata(tmp_path, case, message):
+    trajectory_ids = ("traj-0", "traj-1", "traj-2", "traj-3")
+    checkpoint, config, metrics = _write_protocol_checkpoint(tmp_path, trajectory_ids)
+    if case == "missing_config_mapping":
+        config.pop("training")
+    elif case == "config_seed":
+        config["data"]["seed"] = 53
+    elif case == "config_backend":
+        config["data"]["backend"] = "h5"
+    elif case == "missing_metric":
+        metrics.pop("artifact_role")
+    elif case == "protocol_version":
+        metrics["protocol_version"] = 2
+    elif case == "artifact_role":
+        metrics["artifact_role"] = "sequence_checkpoint"
+    elif case == "metrics_backend":
+        metrics["data_backend"] = "h5"
+    elif case == "metrics_split":
+        metrics["data_split"] = "val"
+    elif case == "training_seed":
+        metrics["training_seed"] = 999
+    elif case == "universe_ids":
+        metrics["universe_trajectory_ids"] = list(reversed(trajectory_ids))
+    elif case == "universe_manifest":
+        metrics["universe_manifest_sha256"] = "tampered"
+    elif case == "selected_ids":
+        metrics["selected_trajectory_ids"] = [trajectory_ids[0]]
+    elif case == "checkpoint_path":
+        metrics["checkpoint"] = str(tmp_path / "different-checkpoint")
+    (checkpoint.parents[1] / "config_resolved.json").write_text(json.dumps(config), encoding="utf-8")
+    (checkpoint.parents[1] / "metrics.json").write_text(json.dumps(metrics), encoding="utf-8")
+    with pytest.raises(ValueError, match=message):
+        pipeline._validate_checkpoint_protocol(
+            checkpoint,
+            expected_seed=52,
+            expected_backend="cyclone_kvikio",
+            expected_universe_ids=trajectory_ids,
+            expected_artifact_role="encoder_checkpoint",
+            role="encoder checkpoint",
+            require_complete=True,
+        )
+
+
+def test_real_sequence_checkpoint_is_bound_to_cache_and_encoder_lineage(tmp_path):
+    trajectory_ids = ("traj-0", "traj-1", "traj-2", "traj-3")
+    checkpoint, config, metrics = _write_protocol_checkpoint(
+        tmp_path,
+        trajectory_ids,
+        role="sequence_checkpoint",
+    )
+    cache_path = tmp_path / "cache.h5"
+    encoder_checkpoint = tmp_path / "encoder" / "checkpoints" / "step_000001"
+    config["latent_cache"] = {
+        "path": str(cache_path),
+        "encoder_checkpoint_path": str(encoder_checkpoint),
+    }
+    metrics["latent_cache"] = str(cache_path)
+    metrics["encoder_checkpoint"] = str(encoder_checkpoint)
+    (checkpoint.parents[1] / "config_resolved.json").write_text(json.dumps(config), encoding="utf-8")
+    (checkpoint.parents[1] / "metrics.json").write_text(json.dumps(metrics), encoding="utf-8")
+    kwargs = {
+        "expected_seed": 52,
+        "expected_backend": "cyclone_kvikio",
+        "expected_universe_ids": trajectory_ids,
+        "expected_artifact_role": "sequence_checkpoint",
+        "role": "sequence checkpoint",
+        "require_complete": True,
+        "expected_cache_path": cache_path,
+        "expected_encoder_checkpoint": encoder_checkpoint,
+    }
+    pipeline._validate_checkpoint_protocol(checkpoint, **kwargs)
+
+    metrics["latent_cache"] = str(tmp_path / "different-cache.h5")
+    (checkpoint.parents[1] / "metrics.json").write_text(json.dumps(metrics), encoding="utf-8")
+    with pytest.raises(ValueError, match="metrics do not match"):
+        pipeline._validate_checkpoint_protocol(checkpoint, **kwargs)
+
+    metrics["latent_cache"] = str(cache_path)
+    (checkpoint.parents[1] / "metrics.json").write_text(json.dumps(metrics), encoding="utf-8")
+    config.pop("latent_cache")
+    (checkpoint.parents[1] / "config_resolved.json").write_text(json.dumps(config), encoding="utf-8")
+    with pytest.raises(ValueError, match="missing latent-cache lineage"):
+        pipeline._validate_checkpoint_protocol(checkpoint, **kwargs)
+
+    config["latent_cache"] = {
+        "path": str(cache_path),
+        "encoder_checkpoint_path": str(encoder_checkpoint),
+    }
+    (checkpoint.parents[1] / "config_resolved.json").write_text(json.dumps(config), encoding="utf-8")
+    with pytest.raises(ValueError, match="requires cache and encoder lineage"):
+        pipeline._validate_checkpoint_protocol(checkpoint, **{**kwargs, "expected_cache_path": None})
+
+    config["latent_cache"]["path"] = str(tmp_path / "different-cache.h5")
+    (checkpoint.parents[1] / "config_resolved.json").write_text(json.dumps(config), encoding="utf-8")
+    with pytest.raises(ValueError, match="resolved config does not match"):
+        pipeline._validate_checkpoint_protocol(checkpoint, **kwargs)
+
+
+def test_real_latent_cache_protocol_matches_actual_universe_and_encoder(tmp_path):
+    trajectory_ids = ("traj-b", "traj-a", "traj-c", "traj-d")
+    checkpoint, _config, _metrics = _write_protocol_checkpoint(tmp_path, trajectory_ids)
+    cache_config = {
+        "data": {"backend": "cyclone_kvikio", "seed": 52, "split": "all"},
+        "training": {"seed": 52},
+        "latent_cache": {"encoder_checkpoint_path": str(checkpoint)},
+    }
+    protocol = {
+        "protocol_version": 1,
+        "artifact_role": "latent_cache",
+        "data_backend": "cyclone_kvikio",
+        "data_split": "all",
+        "data_split_seed": 52,
+        "training_seed": 52,
+        "selected_trajectory_ids": list(trajectory_ids),
+        "trajectory_manifest_sha256": pipeline._trajectory_manifest_sha256(trajectory_ids),
+        "universe_trajectory_ids": list(trajectory_ids),
+        "universe_manifest_sha256": pipeline._trajectory_manifest_sha256(trajectory_ids),
+        "encoder_checkpoint": str(checkpoint),
+    }
+    cache_path = tmp_path / "cache.h5"
+    writer = LatentCacheWriter(
+        cache_path,
+        latent_dim=2,
+        config_yaml=yaml.safe_dump(cache_config),
+        encoder_checkpoint_path=str(checkpoint),
+        protocol_metadata=protocol,
+    )
+    for trajectory_id in trajectory_ids:
+        writer.write_trajectory(trajectory_id, jnp.ones((2, 2), dtype=jnp.float32))
+
+    assert pipeline._validate_latent_cache_protocol(
+        cache_path,
+        expected_seed=52,
+        expected_backend="cyclone_kvikio",
+        require_complete=True,
+    ) == trajectory_ids
+
+    def replace_metadata(*, config_payload=cache_config, protocol_payload=protocol):
+        with h5py.File(cache_path, "a") as handle:
+            handle["metadata"].attrs["config_yaml"] = yaml.safe_dump(config_payload)
+            handle["metadata"].attrs["protocol_json"] = json.dumps(protocol_payload)
+
+    replace_metadata(config_payload={"training": {"seed": 52}})
+    with pytest.raises(ValueError, match="missing its data mapping"):
+        pipeline._validate_latent_cache_protocol(
+            cache_path, expected_seed=52, expected_backend="cyclone_kvikio", require_complete=True
+        )
+    replace_metadata(config_payload={**cache_config, "data": {**cache_config["data"], "split": "train"}})
+    with pytest.raises(ValueError, match="data.split='all'"):
+        pipeline._validate_latent_cache_protocol(
+            cache_path, expected_seed=52, expected_backend="cyclone_kvikio", require_complete=True
+        )
+    replace_metadata(protocol_payload={key: value for key, value in protocol.items() if key != "artifact_role"})
+    with pytest.raises(ValueError, match="missing fields"):
+        pipeline._validate_latent_cache_protocol(
+            cache_path, expected_seed=52, expected_backend="cyclone_kvikio", require_complete=True
+        )
+    replace_metadata(protocol_payload={**protocol, "universe_trajectory_ids": list(reversed(trajectory_ids))})
+    with pytest.raises(ValueError, match="trajectory IDs differ"):
+        pipeline._validate_latent_cache_protocol(
+            cache_path, expected_seed=52, expected_backend="cyclone_kvikio", require_complete=True
+        )
+    replace_metadata(protocol_payload={**protocol, "universe_manifest_sha256": "tampered"})
+    with pytest.raises(ValueError, match="trajectory manifest"):
+        pipeline._validate_latent_cache_protocol(
+            cache_path, expected_seed=52, expected_backend="cyclone_kvikio", require_complete=True
+        )
+    replace_metadata(protocol_payload={**protocol, "encoder_checkpoint": "different"})
+    with pytest.raises(ValueError, match="consistent encoder checkpoint"):
+        pipeline._validate_latent_cache_protocol(
+            cache_path, expected_seed=52, expected_backend="cyclone_kvikio", require_complete=True
+        )
+
+    legacy_path = tmp_path / "legacy.h5"
+    legacy = LatentCacheWriter(legacy_path, latent_dim=2, config_yaml=yaml.safe_dump(cache_config))
+    legacy.write_trajectory("traj-a", jnp.ones((2, 2), dtype=jnp.float32))
+    with pytest.raises(ValueError, match="missing resolved config or protocol metadata"):
+        pipeline._validate_latent_cache_protocol(
+            legacy_path,
+            expected_seed=52,
+            expected_backend="cyclone_kvikio",
+            require_complete=True,
+        )
+    assert pipeline._validate_latent_cache_protocol(
+        legacy_path,
+        expected_seed=52,
+        expected_backend="synthetic",
+        require_complete=False,
+    ) == ("traj-a",)
+    assert pipeline._metadata_data_seed(None) is None
+    assert pipeline._metadata_data_seed({}) is None
+    assert pipeline._protocol_tuple({"ids": [1]}, "ids") is None
+    empty_metadata = tmp_path / "empty_metadata.h5"
+    LatentCacheWriter(empty_metadata, latent_dim=2)
+    assert pipeline._latent_cache_run_config(empty_metadata) is None
+    assert pipeline._latent_cache_protocol(empty_metadata) is None
 
 
 def test_config_loader_and_validation_remaining_command_edges(tiny_config_path):

@@ -15,6 +15,8 @@ from gk_surrogate.data.types import DiagnosticTargets, SnapshotSample
 class SyntheticTrajectoryDataset:
     config: SyntheticDataConfig
     seed: int = 42
+    target_spectra: tuple[str, ...] | None = None
+    target_flux: bool = True
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -43,11 +45,16 @@ class SyntheticTrajectoryDataset:
         if timestep_index < 0 or timestep_index >= self.config.timesteps:
             msg = f"timestep_index out of range: {timestep_index}"
             raise IndexError(msg)
-        spectra = {name: values[trajectory_index, timestep_index].copy() for name, values in self._spectra.items()}
+        selected_spectra = (
+            self._spectra
+            if self.target_spectra is None
+            else {name: self._spectra[name] for name in self.target_spectra if name in self._spectra}
+        )
+        spectra = {name: values[trajectory_index, timestep_index].copy() for name, values in selected_spectra.items()}
         return SnapshotSample(
             x=self._x[trajectory_index, timestep_index].copy(),
             targets=DiagnosticTargets(
-                flux=self._flux[trajectory_index, timestep_index].copy(),
+                flux=self._flux[trajectory_index, timestep_index].copy() if self.target_flux else None,
                 spectra=spectra,
             ),
             trajectory_id=trajectory_id,

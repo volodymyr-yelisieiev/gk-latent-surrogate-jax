@@ -7,6 +7,8 @@ early smoke tests and user imports.
 
 from __future__ import annotations
 
+import math
+
 import jax.numpy as jnp
 
 from gk_surrogate.evaluation.rollout import autoregressive_rollout as autoregressive_rollout
@@ -31,7 +33,9 @@ def horizon_until_threshold(error_by_step: Array, threshold: float) -> Array:
 
     if error_by_step.ndim != 1 or error_by_step.shape[0] == 0:
         raise ValueError("error_by_step must be a non-empty one-dimensional array.")
-    exceeded = error_by_step > threshold
+    if not math.isfinite(threshold) or threshold < 0:
+        raise ValueError("threshold must be finite and non-negative.")
+    exceeded = jnp.logical_or(~jnp.isfinite(error_by_step), error_by_step > threshold)
     first = jnp.argmax(exceeded)
     return jnp.where(jnp.any(exceeded), first + 1, error_by_step.shape[0])
 

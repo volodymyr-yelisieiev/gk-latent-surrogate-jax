@@ -90,11 +90,20 @@ def inspect_dataset(
     max_target_samples: int = 256,
     log_spectra: bool = False,
 ) -> DatasetInspection:
+    if max_trajectories < 1:
+        msg = "max_trajectories must be positive"
+        raise ValueError(msg)
+    if max_depth < 0:
+        msg = "max_depth must be non-negative"
+        raise ValueError(msg)
     if max_target_samples < 1:
         msg = "max_target_samples must be positive"
         raise ValueError(msg)
     dataset = build_dataset(config)
     trajectory_ids = tuple(dataset.trajectory_ids())
+    if not trajectory_ids:
+        msg = "cannot inspect a dataset without trajectories"
+        raise ValueError(msg)
     selected = trajectory_ids[:max_trajectories]
     warnings = []
     try:
@@ -217,8 +226,12 @@ def _target_statistics(
     flux_rows: list[np.ndarray] = []
     spectra_rows: dict[str, list[np.ndarray]] = {}
     warnings: list[str] = []
+    sampled = 0
     for trajectory_id in trajectory_ids:
-        sample_count = min(dataset.num_timesteps(trajectory_id), max_target_samples)
+        remaining = max_target_samples - sampled
+        if remaining <= 0:
+            break
+        sample_count = min(dataset.num_timesteps(trajectory_id), remaining)
         for timestep in range(sample_count):
             try:
                 sample = dataset.get_snapshot(trajectory_id, timestep)
@@ -229,6 +242,7 @@ def _target_statistics(
                 flux_rows.append(np.asarray(sample.targets.flux, dtype=np.float32))
             for name, value in sample.targets.spectra.items():
                 spectra_rows.setdefault(name, []).append(np.asarray(value, dtype=np.float32))
+            sampled += 1
 
     flux_stats = _array_stats("flux", flux_rows, warnings, warn_constant=True)
     spectra_stats = {

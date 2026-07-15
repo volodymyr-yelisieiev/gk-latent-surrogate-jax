@@ -15,8 +15,8 @@ def _require_compatible_latents(pred: Array, target: Array) -> None:
 
 
 def _cosine_loss(pred: Array, target: Array, eps: float = 1e-8) -> Array:
-    pred_norm = pred / jnp.sqrt(jnp.sum(pred**2, axis=-1, keepdims=True) + eps)
-    target_norm = target / jnp.sqrt(jnp.sum(target**2, axis=-1, keepdims=True) + eps)
+    pred_norm = pred / jnp.sqrt(jnp.sum(pred**2, axis=-1, keepdims=True) + eps**2)
+    target_norm = target / jnp.sqrt(jnp.sum(target**2, axis=-1, keepdims=True) + eps**2)
     return 1.0 - jnp.mean(jnp.sum(pred_norm * target_norm, axis=-1))
 
 

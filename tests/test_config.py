@@ -81,6 +81,38 @@ def test_cli_override_changes_resolved_config(tiny_config_path):
     assert config.data.batch_size == 3
 
 
+@pytest.mark.parametrize("override", ("training..max_steps=2", "=2", "training.max_steps="))
+def test_cli_override_rejects_ambiguous_paths_and_values(tiny_config_path, override):
+    with pytest.raises(ValueError, match="override"):
+        load_config(tiny_config_path, overrides=[override], command="train-encoder")
+
+
+def test_h5_schema_rejects_ambiguous_templates_and_channel_selection():
+    with pytest.raises(ValueError, match="exactly one"):
+        H5SchemaConfig(timestep_key_template="snapshot")
+    with pytest.raises(ValueError, match=r"only \{t\}"):
+        H5SchemaConfig(timestep_key_template="snapshot_{index:05d}")
+    with pytest.raises(ValueError, match="duplicates"):
+        H5SchemaConfig(channel_indices=(0, 0))
+
+
+def test_synthetic_backend_rejects_unavailable_input_fields():
+    with pytest.raises(ValueError, match="supports only"):
+        DataConfig.model_validate(
+            {
+                "backend": "synthetic",
+                "input_fields": ["phi"],
+                "synthetic": {
+                    "num_trajectories": 1,
+                    "timesteps": 1,
+                    "channels": 1,
+                    "spatial_shape": [1, 1, 1, 1, 1],
+                    "flux_dim": 1,
+                },
+            }
+        )
+
+
 def test_wandb_config_is_disabled_by_default_and_serializes(tiny_config_path):
     config = load_config(tiny_config_path, command="train-encoder")
     assert config.logging.wandb.enabled is False

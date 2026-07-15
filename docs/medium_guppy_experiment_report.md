@@ -1,123 +1,69 @@
-# Medium Guppy-Style Experiment Report
+# Medium Latent-Sequence Experiment Report
 
-Status: locally re-evaluated main comparison plus verified active W&B evidence,
-2026-07-15.
+Status: clean split-seed-52 validation selection and locked test.
 
-This report summarizes the medium thesis-scale latent-sequence comparison. The run
-artifacts are ignored by git under `outputs/`, while this file records the traceable
-metrics, W&B run links, and thesis interpretation.
+## Protocol
 
-## Scope
+| field | value |
+| --- | --- |
+| latent cache | `outputs/medium_seed52_reproduction/embed/latent_cache.h5` |
+| encoder | `outputs/medium_seed52_reproduction/encoder/checkpoints/step_000500` |
+| data split seed | `52` |
+| validation manifest | `94fa0f9184913ba30a99778e4cc5916fdae748d355fed26988e9fb97a0f293df` |
+| test manifest | `519a2b02e5f9bff8604a3cd28d12264333b95306be64b7619803d0e96772d012` |
+| rollout horizon | 8 |
+| aggregation | trajectory-balanced mean; between-trajectory standard deviation |
+| evaluation size | 5 trajectories, 40 windows per split |
+| primary metric | flux RMSE |
 
-- Dataset/cache: `outputs/latent_cache/server_medium/latent_cache.h5`.
-- Split: held-out `test` rollout windows.
-- Horizon: 8 latent steps.
-- Encoder: `outputs/server_encoder_simsiam_medium/checkpoints/step_000500`.
-- Main metric: flux RMSE from rollout evaluation.
-- Hardware evidence in the source metrics: 4 CUDA devices with `pmap`.
+All encoder/cache/sequence/evaluation stages use the same split seed. Model and
+normalization selection used validation only; the selected learned method was then
+evaluated once on the locked test manifest.
 
-The main-cache table below was re-evaluated from the retained cache and checkpoints with
-trajectory-balanced aggregation, 1-based forecast horizons, and between-trajectory
-dispersion. Its former W&B run IDs are unavailable and are therefore not cited as
-external evidence. Current W&B evidence uses the scientific group
-`medium-scale-latent-surrogate` and the verified runs listed below.
+## Validation Selection
 
-## W&B Runs
+| method | flux RMSE ↓ | flux MAE ↓ | latent MSE ↓ | spectra relative L2 ↓ |
+| --- | ---: | ---: | ---: | ---: |
+| persistence | **17.755674** | **12.768312** | **0.434076** | 1.411545 |
+| GRU | 19.927494 | 14.336292 | 0.614362 | 1.426967 |
+| causal transformer | 18.682791 | 14.010544 | 0.482307 | 1.422305 |
+| GRU, cache-normalized | 19.479990 | 14.796824 | 0.547818 | 1.452332 |
+| causal transformer, cache-normalized | 18.179277 | 12.965019 | 0.455987 | **1.405970** |
 
-| run | role | link |
+Persistence wins the validation primary metric. The cache-normalized causal transformer
+is the strongest learned candidate and was selected for the locked learned-model test.
+
+## Locked Test
+
+| method | flux RMSE ↓ | flux MAE ↓ | flux relative error ↓ | latent MSE ↓ | spectra relative L2 ↓ |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| persistence | 11.988926 | 10.761940 | 2.247385 | 0.101896 | 19.525700 |
+| selected cache-normalized transformer | **11.425478** | **10.257084** | **2.208325** | **0.073825** | **19.168613** |
+
+The selected transformer lowers the primary flux-RMSE point estimate by `0.563448`
+(`4.70%`). It lowers flux MAE by `4.69%`, flux relative error by `1.74%`, spectra relative
+L2 by `1.83%`, and latent MSE by `27.55%`. It improves per-trajectory flux RMSE on three
+of five trajectories. The paired mean difference is `-0.8279`, with a descriptive 95% t
+interval `[-2.2249, 0.5692]`; this small sample does not support a significance claim.
+
+## Evidence
+
+| record | local source | W&B |
 | --- | --- | --- |
-| `validation-flux-head-medium-ridge` | frozen-latent ridge validation | https://wandb.ai/v-yelisieiev-johannes-kepler-universit-t-linz/gk-latent-surrogate/runs/6vzoljnu |
-| `representation-pca-tsne-medium` | PCA/t-SNE representation analysis | https://wandb.ai/v-yelisieiev-johannes-kepler-universit-t-linz/gk-latent-surrogate/runs/ok3qtuob |
-| `sequence-training-comparison-medium` | sequence-model training comparison | https://wandb.ai/v-yelisieiev-johannes-kepler-universit-t-linz/gk-latent-surrogate/runs/doy8yhgt |
-| `rollout-comparison-medium-validation` | validation rollout comparison | https://wandb.ai/v-yelisieiev-johannes-kepler-universit-t-linz/gk-latent-surrogate/runs/eh4xe1sg |
-| `rollout-guppylm-pretrained-sft-medium-test` | pretrained-SFT test rollout | https://wandb.ai/v-yelisieiev-johannes-kepler-universit-t-linz/gk-latent-surrogate/runs/iq92tggu |
+| validation selection | `outputs/medium_seed52_reproduction/validation_*/metrics.json` | see `docs/wandb_tracking.md` |
+| locked persistence test | `outputs/medium_seed52_reproduction/test_persistence_locked/metrics.json` | see `docs/wandb_tracking.md` |
+| locked transformer test | `outputs/medium_seed52_reproduction/test_transformer_cache_normalized_locked/metrics.json` | see `docs/wandb_tracking.md` |
 
-## Training Metrics
+The final W&B group is listed in `docs/wandb_tracking.md`. Each run records the cache,
+checkpoints, split seed, manifest, horizon, aggregation, selected trajectory/window
+counts, Git state, concise scalar metrics, and resolved-config/metrics artifacts.
 
-| model | source | step | train latent MSE | train loss |
-| --- | --- | ---: | ---: | ---: |
-| GRU | `outputs/server_sequence_gru_medium/metrics.json` | 500 | 0.103108 | 0.103259 |
-| Transformer | `outputs/server_sequence_transformer_medium/metrics.json` | 500 | 0.102039 | 0.102118 |
-| GRU, cache-normalized | `outputs/server_sequence_gru_medium_normalized/metrics.json` | 500 | 0.046322 | 0.286328 |
-| Transformer, cache-normalized | `outputs/server_sequence_transformer_medium_normalized/metrics.json` | 500 | 0.036724 | 0.386510 |
+## Boundaries
 
-Train latent MSE is included as a secondary diagnostic. The scientific comparison uses
-flux RMSE and diagnostic rollout metrics.
-
-## Rollout Comparison
-
-All rows below use the same medium cache, five held-out trajectories, 40 rollout windows,
-and an 8-step test horizon. The reports under `outputs/verified_medium/` were generated by
-the current implementation; no active W&B run currently mirrors this exact table.
-
-| model | cache | split | horizon | source | flux RMSE | flux MAE | flux relative error | latent MSE | stable | rollout windows |
-| --- | --- | --- | ---: | --- | ---: | ---: | ---: | ---: | --- | ---: |
-| Persistence | `server_medium` | test | 8 | `outputs/verified_medium/persistence/metrics.json` | 23.6794 | 15.0574 | 0.3794 | 0.8529 | true | 40 |
-| GRU | `server_medium` | test | 8 | `outputs/verified_medium/gru/metrics.json` | 24.3575 | 15.7348 | 0.4046 | 0.9264 | true | 40 |
-| Transformer | `server_medium` | test | 8 | `outputs/verified_medium/transformer/metrics.json` | 9.9499 | 8.9024 | 0.6840 | 0.0705 | true | 40 |
-| GRU, cache-normalized | `server_medium` | test | 8 | `outputs/verified_medium/gru_normalized/metrics.json` | 23.2162 | 14.6407 | 0.3589 | 0.8425 | true | 40 |
-| Transformer, cache-normalized | `server_medium` | test | 8 | `outputs/verified_medium/transformer_normalized/metrics.json` | 9.2270 | 8.0229 | 0.5839 | 0.0675 | true | 40 |
-
-The best current medium result is the cache-normalized transformer with flux RMSE
-`9.2270`. It improves over persistence by roughly 61% in flux RMSE on this verified set.
-The GRU variants do not beat persistence in flux RMSE.
-
-## Representation Validation
-
-The same medium latent cache was evaluated with a frozen ridge flux head. This provides a
-validation metric for the learned representation, separate from the rollout table above.
-
-| artifact | split | samples | metric | value | W&B |
-| --- | --- | ---: | --- | ---: | --- |
-| `outputs/server_evaluate_flux_head_medium/metrics.json` | val | 115 | flux RMSE | 8.8278 | https://wandb.ai/v-yelisieiev-johannes-kepler-universit-t-linz/gk-latent-surrogate/runs/6vzoljnu |
-
-The matching representation plots are in
-`outputs/server_plot_representation_medium/plots/`: `pca_flux.png`,
-`tsne_perplexity_5_flux.png`, `tsne_perplexity_30_flux.png`, and
-`tsne_perplexity_50_flux.png`. They use 1173 latent points from 51 trajectories and color
-points by flux.
-
-The corresponding external representation evidence is the W&B run
-`representation-pca-tsne-medium` (`ok3qtuob`).
-
-## Log-Spectra Sensitivity
-
-The log-spectra single-batch cache runs use a different cache
-(`outputs/latent_cache/server_medium_logspec_single_b1/latent_cache.h5`), so they are not
-mixed into the main table. They are useful as sensitivity evidence:
-
-| model | cache | split | horizon | source | flux RMSE | latent MSE |
-| --- | --- | --- | ---: | --- | ---: | ---: |
-| Persistence, log-spectra cache | `server_medium_logspec_single_b1` | test | 8 | `outputs/server_evaluate_rollout_medium_logspec_persistence_single_b1cache/metrics.json` | 22.9264 | 0.0339 |
-| GRU, log-spectra cache | `server_medium_logspec_single_b1` | test | 8 | `outputs/server_evaluate_rollout_medium_logspec_gru_single_b1cache/metrics.json` | 21.8835 | 0.0294 |
-| Transformer, log-spectra cache | `server_medium_logspec_single_b1` | test | 8 | `outputs/server_evaluate_rollout_medium_logspec_transformer_single_b1cache/metrics.json` | 10.4483 | 0.0067 |
-
-The verified W&B validation comparison (`eh4xe1sg`) reports flux RMSE `22.9264` for
-persistence, `21.8835` for GRU, `10.4483` for the transformer, and `17.8415` for the SFT
-variant. These validation rows belong to this sensitivity-cache protocol and must not
-replace the verified main-cache test result of `9.2270`.
-
-## Pretrained-SFT Test Evidence
-
-The verified W&B run `rollout-guppylm-pretrained-sft-medium-test` (`iq92tggu`) reports test
-rollout flux RMSE `11.5816`. This is a distinct pretrained-SFT experiment and is not merged
-with either the verified main-cache table or the validation sensitivity comparison.
-
-## Interpretation And Limitations
-
-On the verified medium-cache test split, the cache-normalized from-scratch Guppy-style
-latent transformer has the lowest flux RMSE among the reported persistence, GRU, and
-transformer variants. This is an internal latent-surrogate comparison, not evidence of a
-production surrogate or full-field reconstruction quality.
-
-Limitations to state plainly:
-
-- The `9.2270` main-cache result was reproduced by the current evaluation path; its former
-  W&B run IDs are unavailable.
-- The five active W&B runs use the `medium-scale-latent-surrogate` group and scientific
-  display names, but cover separate validation, representation, training-comparison, and
-  pretrained-SFT protocols.
-- The result depends on the stated latent cache, split, horizon, and diagnostic heads.
-- Flux RMSE is the primary result; latent MSE is a secondary diagnostic.
-- The log-spectra sensitivity and pretrained-SFT runs are not directly comparable to the
-  main-cache table.
+- The former mixed-seed `9.2270` result is invalidated and excluded.
+- The seed-62 pretrained-SFT run is a separate protocol and is not in this comparison.
+- Results cover five validation and five test trajectories; no multi-seed confidence
+  interval is available.
+- Encoder, cache, and sequence artifacts identify commit `f97a0257d7627c8ff8960433aed30c750a9f90d5`.
+- Final test evaluation identifies commit `280540f54e67c0dbcae253327596bfaf7cbf9307`
+  and the SHA-256 of an empty tracked diff; the untracked thesis source is packaged separately.

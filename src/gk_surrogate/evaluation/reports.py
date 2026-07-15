@@ -15,11 +15,18 @@ from gk_surrogate.utils.pretty import scalarize
 
 
 def _jsonable(value: Any) -> Any:
+    if isinstance(value, Path):
+        return str(value)
+    if isinstance(value, Mapping):
+        return {str(key): _jsonable(item) for key, item in value.items()}
     arr = np.asarray(value)
     if arr.shape == ():
-        if arr.dtype == np.bool_:
-            return bool(arr)
-        return float(arr)
+        scalar = arr.item()
+        if isinstance(scalar, np.generic):
+            scalar = scalar.item()
+        if isinstance(scalar, bool | int | float | str) or scalar is None:
+            return scalar
+        return str(scalar)
     return arr.tolist()
 
 

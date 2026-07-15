@@ -34,8 +34,8 @@ def latent_relative_l2(pred: Array, target: Array, eps: float = 1e-8) -> Array:
 
 def latent_cosine_similarity(pred: Array, target: Array, eps: float = 1e-8) -> Array:
     _require_same_shape(pred, target)
-    pred_norm = pred / jnp.sqrt(jnp.sum(pred**2, axis=-1, keepdims=True) + eps)
-    target_norm = target / jnp.sqrt(jnp.sum(target**2, axis=-1, keepdims=True) + eps)
+    pred_norm = pred / jnp.sqrt(jnp.sum(pred**2, axis=-1, keepdims=True) + eps**2)
+    target_norm = target / jnp.sqrt(jnp.sum(target**2, axis=-1, keepdims=True) + eps**2)
     return jnp.mean(jnp.sum(pred_norm * target_norm, axis=-1))
 
 
@@ -46,6 +46,6 @@ def rollout_mse_by_step(pred: Array, target: Array) -> Array:
 
 def rollout_cosine_by_step(pred: Array, target: Array, eps: float = 1e-8) -> Array:
     _require_same_shape(pred, target, rollout=True)
-    pred_norm = pred / jnp.sqrt(jnp.sum(pred**2, axis=-1, keepdims=True) + eps)
-    target_norm = target / jnp.sqrt(jnp.sum(target**2, axis=-1, keepdims=True) + eps)
+    pred_norm = pred / jnp.sqrt(jnp.sum(pred**2, axis=-1, keepdims=True) + eps**2)
+    target_norm = target / jnp.sqrt(jnp.sum(target**2, axis=-1, keepdims=True) + eps**2)
     return jnp.mean(jnp.sum(pred_norm * target_norm, axis=-1), axis=0)

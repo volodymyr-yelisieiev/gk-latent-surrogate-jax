@@ -6,7 +6,7 @@ import jax
 import jax.numpy as jnp
 from flax import linen as nn
 
-from gk_surrogate.models.encoders import _activation
+from gk_surrogate.models.encoders import _activation, _validate_dropout_rate
 
 Array = jnp.ndarray
 
@@ -18,11 +18,6 @@ def _ensure_latent_context(z_context: Array, latent_dim: int | None = None) -> N
         raise ValueError(f"Expected latent dimension {latent_dim}, got {z_context.shape[-1]}.")
     if z_context.shape[1] <= 0:
         raise ValueError("Latent context must contain at least one timestep.")
-
-
-def _validate_dropout_rate(dropout_rate: float) -> None:
-    if not 0.0 <= dropout_rate < 1.0:
-        raise ValueError(f"dropout_rate must satisfy 0 <= rate < 1, got {dropout_rate}.")
 
 
 class PersistenceBaseline(nn.Module):
@@ -171,6 +166,8 @@ class CausalTransformerSequenceModel(nn.Module):
             raise ValueError("embed_dim must be divisible by num_heads.")
         if self.mlp_ratio <= 0:
             raise ValueError("mlp_ratio must be positive.")
+        if int(self.embed_dim * self.mlp_ratio) <= 0:
+            raise ValueError("embed_dim * mlp_ratio must produce at least one MLP feature.")
 
         y = nn.Dense(self.embed_dim, name="input_projection")(z_context)
         pos = self.param(
@@ -230,6 +227,8 @@ class GuppyLatentTransformer(nn.Module):
             raise ValueError("model_dim must be divisible by num_heads.")
         if self.mlp_ratio <= 0:
             raise ValueError("mlp_ratio must be positive.")
+        if int(self.model_dim * self.mlp_ratio) <= 0:
+            raise ValueError("model_dim * mlp_ratio must produce at least one MLP feature.")
 
         y = nn.Dense(self.model_dim, name="up_projection")(z_context)
         pos = self.param(

@@ -1,7 +1,5 @@
 # Thesis Claims
 
-Evidence reviewed: 2026-07-15.
-
 This ledger ties thesis claims to reproducible evidence and states the boundaries of the
 current results.
 
@@ -20,9 +18,9 @@ rollouts over persistence baselines on held-out trajectories?
 | Validation and thesis-facing metrics prioritize flux RMSE over latent MSE. | `docs/metrics.md`, `docs/small_validation_experiment.md`, validated experiment protocol |
 | Small validation includes flux-head evaluation and PCA/t-SNE plots colored by flux. | `docs/small_validation_experiment.md`, `configs/experiment/server_evaluate_flux_head_small.yaml`, `configs/experiment/server_plot_representation_small.yaml` |
 | The current Guppy-style sequence model is trained from scratch, not from a public pretrained Guppy checkpoint. | `docs/pretrained_guppy_sft_feasibility.md` |
-| The optional GuppyLM trunk-transfer/SFT experiment completed without silent initialization fallback and reported flux RMSE `17.8415` on validation and `11.5816` on test. | `docs/pretrained_guppy_sft_feasibility.md`, active W&B runs `eh4xe1sg` and `iq92tggu` |
-| The best current medium model is the cache-normalized latent transformer: flux RMSE `9.2270` on the verified medium test rollout set. | `docs/medium_guppy_experiment_report.md`, `outputs/verified_medium/transformer_normalized/metrics.json` |
-| GRU variants do not beat persistence on medium flux RMSE in the current artifact set. | `docs/medium_guppy_experiment_report.md` |
+| Under the clean seed-52 protocol, the cache-normalized Transformer is the best learned validation candidate and lowers locked-test flux RMSE relative to persistence (`11.425478` versus `11.988926`). | `docs/current_best_model.md`, `docs/thesis_result_set.md`, `outputs/medium_seed52_reproduction/` |
+| The selected Transformer also lowers locked-test flux MAE, latent MSE, and spectra relative L2; the paired five-trajectory interval includes zero, so no significance claim is made. | `docs/current_best_model.md`, `docs/medium_guppy_experiment_report.md` |
+| Historical mixed-seed medium and transfer-validation runs are invalidated; the separate seed-62 transfer test is internally consistent but not comparable to the accepted seed-52 result. | `docs/medium_guppy_experiment_report.md`, `docs/pretrained_guppy_sft_feasibility.md` |
 
 ## Do Not Claim
 
@@ -32,17 +30,23 @@ rollouts over persistence baselines on held-out trajectories?
 - Do not use latent MSE as the headline result.
 - Do not mix smoke, one-trajectory, small validation, and medium test numbers in one
   headline table.
-- Do not imply that active W&B runs mirror the verified local `9.2270` main-cache table; they
-  cover distinct validation, representation, comparison, and pretrained-SFT protocols.
+- Do not present `9.2270` or `17.8415` as held-out scientific evidence; the representation encoder
+  had seen part of the downstream evaluation split under a different split seed.
+- Do not compare the standalone seed-62 `11.5816` transfer value with seed-52 rows or present it as
+  a baseline win; it has no matched persistence row or validation selection in that protocol.
 - Treat one-trajectory runs as engineering validation and log-spectra single-batch runs as
   sensitivity evidence, not as rows in the main comparison table.
 
 ## Limitations
 
-- The evidence is bounded by the current preprocessed Cyclone/KvikIO cache and split.
-- The main-cache result was re-evaluated locally with trajectory-balanced aggregation,
-  1-based horizons, and finite diagnostic metrics, but has no active exact W&B mirror;
-  current W&B runs cover separate experiment protocols.
+- The historical medium cache used encoder split seed 52 while downstream sequence/evaluation
+  stages used seeds 53 or 54. Four of five seed-53 test trajectories occurred in the seed-52
+  encoder training split, so the old headline table is not an end-to-end held-out result.
+- The accepted clean result uses split seed 52 from encoder training through embedding, sequence
+  training, validation selection, and locked testing. Its primary flux-RMSE point estimate favors
+  the selected Transformer by 4.70% under this fixed protocol.
+- The clean comparison contains five validation and five test trajectories and one training seed;
+  it does not support a significance or equivalence claim.
 - Generalization beyond the tested trajectories is not proven.
 - GyroSwin remains protocol-level until matching comparison materials arrive.
 - The implementation is a latent surrogate, not a full 5D reconstruction model.

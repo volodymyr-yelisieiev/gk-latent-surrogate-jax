@@ -15,8 +15,9 @@ Snapshot collation requires consistent diagnostic availability across a batch. A
 of present and missing flux targets, or inconsistent spectra keys, is rejected instead of
 silently dropping targets. Dataset and trajectory normalization statistics pool all
 sampled elements into numerically stable population moments, including variation between
-snapshots, while retaining only running scalar state in memory. This replaces the former
-mean of within-snapshot variances, which omitted between-snapshot drift.
+snapshots, while retaining only running scalar state in memory. Training-time dataset
+statistics must be restricted to the declared training trajectory IDs; validation and
+test trajectories must not contribute to fitted preprocessing statistics.
 Fixed normalization accepts either scalar statistics or one value per channel. Channel
 lists are reshaped against the channel-first axis as `[C, 1, 1, 1, 1, 1]`; mismatched
 channel counts are rejected before training.
@@ -69,6 +70,11 @@ metadata/fluxes
 metadata/ky_spectrum
 metadata/q_spectrum
 ```
+
+When an alternate HDF5 schema is supplied, the fixture writer uses its configured time,
+flux, and spectra paths. Synthetic dataset adapters expose only the diagnostic targets
+requested by `data.target_flux` and `data.target_spectra`, matching the real-data adapter
+contract.
 
 Latent caches are HDF5 files written after encoder training:
 

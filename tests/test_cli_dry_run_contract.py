@@ -61,3 +61,19 @@ def test_cyclone_inspect_dry_run_reports_permission_blocker(monkeypatch, repo_ro
 
     monkeypatch.setattr("gk_surrogate.cli.inspect_dataset", blocked_inspection)
     assert main(["inspect-data", "--config", str(config), "--dry-run"]) == 0
+
+
+@pytest.mark.parametrize(
+    "args",
+    (
+        ["inspect-data", "--max-trajectories", "0"],
+        ["inspect-data", "--max-depth", "-1"],
+        ["inspect-data", "--max-target-samples", "0"],
+        ["benchmark-step-time", "--measured-steps", "0"],
+    ),
+)
+def test_cli_rejects_invalid_bounded_work_arguments(repo_root, args):
+    config = repo_root / "configs/data/tiny_dummy.yaml"
+    with pytest.raises(SystemExit) as exc_info:
+        main([args[0], "--config", str(config), *args[1:]])
+    assert exc_info.value.code == 2

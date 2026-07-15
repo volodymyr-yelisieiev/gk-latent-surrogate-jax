@@ -1,0 +1,86 @@
+\cleardoubleoddpage
+\chapter{Experimental Setup}
+\label{chap:experiments}
+
+\section{Evidence Tiers}
+
+Experiments are divided into three evidence tiers. Synthetic smoke runs verify that the complete
+pipeline executes without private data or GPU hardware. Tiny real-data and small multi-trajectory
+runs validate the Cyclone schema, diagnostic availability, and held-out evaluation commands. The
+medium experiment is the only tier used for the principal sequence-model comparison. This
+separation avoids presenting a debugging fixture as scientific evidence.
+
+\section{Medium Dataset}
+
+The medium latent cache contains 51 trajectories and 1,173 snapshots after preprocessing. Each
+trajectory contributes 23 retained time steps. The input snapshot has four channels and spatial
+shape $(32,8,16,85,32)$. The associated targets are a scalar flux and two 32-bin spectra. Data are
+read from the preprocessed Cyclone/KvikIO layout with offset 80 and temporal subsampling by eight.
+
+The deterministic trajectory split uses seed 52. It assigns 41 trajectories to training, five to
+validation, and five to test. This gives 943 training, 115 validation, and 115 test latent points.
+With context length eight and one-step training targets, the cache exposes 615 training windows and
+75 windows in each held-out split. The eight-step test rollout requires longer windows and yields
+40 evaluated windows across the five test trajectories.
+
+\section{Encoder Training and Validation}
+
+The 128-dimensional encoder is trained for 500 update steps with a global batch size of four across
+four GPUs. The optimizer uses learning rate $10^{-3}$, weight decay $10^{-4}$, 25 warmup steps, and
+gradient clipping. Diagnostic and SimSiam weights are given in \autoref{chap:method}.
+
+After embedding the dataset, a ridge regressor is fitted from frozen training latents to flux and
+evaluated on the validation trajectories. This probe asks whether flux information is linearly
+accessible without changing the encoder. PCA and t-SNE are also computed for qualitative
+inspection. These projections are descriptive; they are not used to select the sequence model and
+cannot by themselves prove that the representation captures physical state.
+
+\section{Sequence Comparison}
+
+The principal comparison uses persistence, GRU, causal Transformer, cache-normalized GRU, and
+cache-normalized causal Transformer. Each learned model has its own checkpoint, but the encoder,
+latent cache, validation trajectories, context length, forecast horizon, diagnostic heads, and
+aggregation are fixed. The four learned candidates and persistence are first evaluated on the
+validation split. Flux RMSE selects the strongest learned candidate; the locked test is then opened
+once for that candidate and the pre-declared persistence reference. The final test comparison is
+summarized in \autoref{tab:main-results}.
+
+All learned sequence models train for 500 steps. The GRU has one 256-unit layer. The Transformer
+has width 256, depth three, four heads, and no dropout. Cache-normalized variants calculate
+per-latent statistics on training trajectories and use the same architecture and optimization
+schedule as their unnormalized counterparts. GRU runs use training seed 53 and Transformer runs use
+seed 54; consequently, architecture and initialization are not fully disentangled. ``Best learned
+candidate'' therefore means the lowest observed validation RMSE among these single-seed runs.
+
+An integrity audit found that an earlier exploratory comparison had combined an encoder/cache made
+with split seed 52 and downstream evaluations made with different split seeds. Four of five nominal
+test trajectories in one such evaluation had therefore been visible during encoder training. Those
+numbers are excluded from scientific evidence. The accepted experiment uses seed 52 for encoder,
+cache, sequence training, validation selection, and locked testing, with stored trajectory-manifest
+hashes checked at the pipeline boundaries.
+
+\section{Metrics}
+
+Flux RMSE is the primary metric because the research question concerns transport-predictive
+rollouts. Flux MAE and relative error provide complementary scale information. Latent MSE measures
+representation-space trajectory accuracy. Spectra relative $L_2$, log-MSE, and shape correlation
+are retained as secondary diagnostics. Stability requires finite outputs over the complete rollout.
+
+Metrics are computed per horizon and aggregated with equal trajectory weights. This matters because
+overlapping windows are correlated and the number of valid windows can differ across trajectories.
+The reported test result therefore describes the mean of five trajectory-level evaluations rather
+than treating every overlapping window as an independent physical realization. A descriptive
+paired interval is computed from the five trajectory-level differences; overlapping windows are not
+treated as independent samples, and no significance claim is made.
+
+\section{Additional Experiments}
+
+A separate log-spectra sensitivity cache evaluates the same model families under a different
+preprocessing protocol. An optional GuppyLM trunk-transfer experiment maps compatible attention
+and MLP tensors from a small text language model while reinitializing the continuous latent
+projections. These experiments are reported only as sensitivity evidence because their cache and
+initialization protocols differ from the principal table.
+
+GyroSwin remains related work rather than an experimental row. Public architecture descriptions do
+not provide the matched artifact bundle needed to run its checkpoint under the exact split and
+metric implementation used here.

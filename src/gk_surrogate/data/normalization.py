@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -73,6 +74,7 @@ def _broadcast_stats(stats: NormalizationStats, x: np.ndarray) -> tuple[np.ndarr
 def estimate_dataset_stats(
     dataset: TrajectoryDataset,
     *,
+    trajectory_ids: Sequence[str] | None = None,
     max_samples: int = 128,
     epsilon: float = 1e-6,
 ) -> NormalizationStats:
@@ -84,7 +86,8 @@ def estimate_dataset_stats(
         raise ValueError(msg)
     moments = _RunningMoments()
     sampled_snapshots = 0
-    for trajectory_id in dataset.trajectory_ids():
+    selected_ids = dataset.trajectory_ids() if trajectory_ids is None else trajectory_ids
+    for trajectory_id in selected_ids:
         for timestep in range(dataset.num_timesteps(trajectory_id)):
             moments.update(dataset.get_snapshot(trajectory_id, timestep).x)
             sampled_snapshots += 1

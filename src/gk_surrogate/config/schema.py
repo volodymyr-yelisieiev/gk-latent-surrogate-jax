@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from string import Formatter
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -93,6 +94,25 @@ class H5SchemaConfig(StrictModel):
         if value is not None and any(index < 0 for index in value):
             msg = "channel_indices must be non-negative"
             raise ValueError(msg)
+        if value is not None and len(set(value)) != len(value):
+            msg = "channel_indices must not contain duplicates"
+            raise ValueError(msg)
+        return value
+
+    @field_validator("timestep_key_template", "phi_key_template")
+    @classmethod
+    def timestep_templates_require_t(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        try:
+            fields = [field for _, field, _, _ in Formatter().parse(value) if field is not None]
+            value.format(t=0)
+        except (AttributeError, IndexError, KeyError, ValueError) as exc:
+            msg = "HDF5 timestep templates must be valid format strings using only {t}"
+            raise ValueError(msg) from exc
+        if fields != ["t"]:
+            msg = "HDF5 timestep templates must contain exactly one {t} field"
+            raise ValueError(msg)
         return value
 
 
@@ -166,6 +186,9 @@ class DataConfig(StrictModel):
     def validate_backend_payload(self) -> DataConfig:
         if self.backend == "synthetic" and self.synthetic is None:
             msg = "synthetic backend requires data.synthetic"
+            raise ValueError(msg)
+        if self.backend == "synthetic" and self.input_fields != ("df",):
+            msg = "synthetic backend supports only data.input_fields=[df]"
             raise ValueError(msg)
         if self.backend == "h5" and (self.root is None or self.h5_schema is None):
             msg = "h5 backend requires data.root and data.h5_schema"

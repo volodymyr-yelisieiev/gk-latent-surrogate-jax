@@ -1,0 +1,73 @@
+% !TeX program = xelatex
+% !TeX encoding = UTF-8
+% !BIB program = biber
+\documentclass[a4paper,oneside,10pt,ngerman,english]{scrbook}
+
+\usepackage[bathesis,fancyfonts]{jkureport}
+\usepackage{csquotes}
+\usepackage[
+  backend=biber,
+  style=authoryear,
+  natbib=true,
+  maxcitenames=2,
+  maxbibnames=99,
+  uniquename=false,
+  doi=true,
+  url=true,
+  isbn=false
+]{biblatex}
+\usepackage{amsmath}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{xcolor}
+\usepackage{enumitem}
+\usepackage{listings}
+\usepackage{tabularx}
+
+\graphicspath{{figures/}}
+\addbibresource{references.bib}
+
+\newcommand{\modelname}{latent Transformer}
+\newcommand{\code}[1]{\texttt{#1}}
+
+\begin{document}
+\frontmatter
+
+\title{Latent Time-Series Surrogates for Five-Dimensional Gyrokinetic Plasma Turbulence}
+\titleshort{Latent Surrogates for Gyrokinetic Turbulence}
+\author{Volodymyr~Yelisieiev\matno{12340334}}
+\supervisor{Gianluca Galletti}
+\degree{Bachelor of Science}{Artificial Intelligence (033 536)}
+\submissiondepartment{Institute for Machine Learning}
+\date{2026-07-15}
+\keywords{gyrokinetics, latent dynamics, Transformer, JAX}
+\maketitle
+
+\input{00-abstract}
+
+\cleardoubleoddpage
+\tableofcontents
+\cleardoubleoddpage
+\listoffigures
+\cleardoubleoddpage
+\listoftables
+
+\mainmatter
+\input{01-introduction}
+\input{02-background}
+\input{03-method}
+\input{04-implementation}
+\input{05-experiments}
+\input{06-results}
+\input{07-discussion}
+\input{08-conclusion}
+
+\cleardoubleoddpage
+\printbibliography
+
+\appendix
+\input{91-story-summary}
+\input{92-reproducibility}
+
+\cleardoubleoddpage
+\end{document}

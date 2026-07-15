@@ -39,6 +39,11 @@ def _ensure_snapshot_shape(x: Array) -> None:
         )
 
 
+def _validate_dropout_rate(dropout_rate: float, *, name: str = "dropout_rate") -> None:
+    if not 0.0 <= dropout_rate < 1.0:
+        raise ValueError(f"{name} must satisfy 0 <= rate < 1, got {dropout_rate}.")
+
+
 def _as_tuple(value: int | Sequence[int], *, length: int, name: str) -> tuple[int, ...]:
     result = (value,) * length if isinstance(value, int) else tuple(int(v) for v in value)
     if len(result) != length:
@@ -59,6 +64,7 @@ class FlattenMLPEncoder(nn.Module):
     @nn.compact
     def __call__(self, x: Array, *, train: bool) -> Array:
         _ensure_snapshot_shape(x)
+        _validate_dropout_rate(self.dropout_rate)
         if self.latent_dim <= 0:
             raise ValueError("latent_dim must be positive.")
         if any(hidden_dim <= 0 for hidden_dim in self.hidden_dims):
@@ -88,6 +94,7 @@ class ConvNDEncoder(nn.Module):
     @nn.compact
     def __call__(self, x: Array, *, train: bool) -> Array:
         _ensure_snapshot_shape(x)
+        _validate_dropout_rate(self.dropout_rate)
         if self.latent_dim <= 0:
             raise ValueError("latent_dim must be positive.")
         if not self.channels:
@@ -186,6 +193,8 @@ class PatchTransformerEncoder(nn.Module):
     @nn.compact
     def __call__(self, x: Array, *, train: bool) -> Array:
         _ensure_snapshot_shape(x)
+        _validate_dropout_rate(self.dropout_rate)
+        _validate_dropout_rate(self.attention_dropout_rate, name="attention_dropout_rate")
         if self.latent_dim <= 0:
             raise ValueError("latent_dim must be positive.")
         patch_size = as_5d_tuple(self.patch_size, name="patch_size")
@@ -199,6 +208,8 @@ class PatchTransformerEncoder(nn.Module):
             raise ValueError("embed_dim must be divisible by num_heads.")
         if self.mlp_ratio <= 0:
             raise ValueError("mlp_ratio must be positive.")
+        if int(self.embed_dim * self.mlp_ratio) <= 0:
+            raise ValueError("embed_dim * mlp_ratio must produce at least one MLP feature.")
 
         spatial_shape = x.shape[2:]
         token_count = validate_token_count(

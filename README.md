@@ -28,23 +28,20 @@ run state remain outside version control.
 Full 5D reconstruction, multi-node training, mandatory real-data access, and a PyTorch
 runtime dependency are outside the implemented scope.
 
-## Verified result
+## Result status
 
-The current medium comparison uses one latent cache, the same held-out test split, an
-8-step horizon, 40 rollout windows, and equal weighting across five trajectories.
+The previous medium-comparison table has been withdrawn: encoder/cache and downstream
+evaluation used different trajectory-split seeds, and fitted normalization was not
+consistently restricted to training trajectories. Those values are not accepted as thesis
+evidence.
 
-| method | flux RMSE |
-| --- | ---: |
-| Persistence | 23.6794 |
-| GRU | 24.3575 |
-| Transformer | 9.9499 |
-| GRU, cache-normalized | 23.2162 |
-| Transformer, cache-normalized | **9.2270** |
-
-Each model row is produced by its own checkpoint or baseline under the same evaluation
-protocol; results from different protocols are not combined. Detailed provenance and
-limitations are recorded in `docs/medium_guppy_experiment_report.md` and
-`docs/final_claims.md`.
+The corrected comparison uses split seed 52 throughout, fits cache normalization on the
+training split, selects the learned candidate on validation, and opens the test split once
+for that candidate and persistence. The selected cache-normalized Transformer improves
+the primary locked-test flux RMSE (`11.425478` versus `11.988926`, a `4.70%` reduction).
+The paired five-trajectory interval still includes zero, so this is evidence for this
+fixed protocol rather than a significance or general-equivalence claim. Detailed evidence is recorded in
+`docs/medium_guppy_experiment_report.md` and `docs/final_claims.md`.
 
 ## Installation and verification
 

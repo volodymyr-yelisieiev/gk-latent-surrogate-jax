@@ -83,3 +83,24 @@ def test_h5_rank_optional_and_unconfigured_field_edges(tmp_path):
     bad_schema = H5SchemaConfig(timestep_key_template="bad_{t:05d}")
     with pytest.raises(ValueError, match="rank 6"):
         H5TrajectoryDataset(tmp_path, bad_schema, target_flux=False).get_snapshot("traj_000", 0)
+
+
+def test_synthetic_h5_writer_honors_configured_diagnostic_paths(tmp_path, tiny_config_path):
+    config = load_config(tiny_config_path, command="train-encoder")
+    assert config.data.synthetic is not None
+    schema = H5SchemaConfig(
+        timestep_key="coordinates/time",
+        flux_key="diagnostics/particle_flux",
+        spectra_keys={"ky": "diagnostics/spectra/ky", "q": "q_spectrum"},
+    )
+    write_synthetic_h5(tmp_path, config.data.synthetic, seed=3, schema=schema)
+    dataset = H5TrajectoryDataset(tmp_path, schema, target_spectra=("ky", "q"), target_flux=True)
+    sample = dataset.get_snapshot(dataset.trajectory_ids()[0], 0)
+    assert sample.physical_time == 0.0
+    assert sample.targets.flux is not None
+    assert sample.targets.spectra["ky"].shape == (8,)
+    with h5py.File(next(tmp_path.glob("*.h5")), "r") as handle:
+        assert "coordinates/time" in handle
+        assert "diagnostics/particle_flux" in handle
+        assert "diagnostics/spectra/ky" in handle
+        assert "metadata/q_spectrum" in handle

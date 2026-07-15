@@ -96,3 +96,14 @@ def test_inspection_rejects_nonpositive_target_sample_limit(tiny_config_path):
     config = load_config(tiny_config_path, command="train-encoder")
     with pytest.raises(ValueError, match="max_target_samples"):
         inspect_dataset(config.data, max_target_samples=0)
+    with pytest.raises(ValueError, match="max_trajectories"):
+        inspect_dataset(config.data, max_trajectories=0)
+    with pytest.raises(ValueError, match="max_depth"):
+        inspect_dataset(config.data, max_depth=-1)
+
+
+def test_inspection_target_sample_limit_is_global(tiny_config_path):
+    config = load_config(tiny_config_path, command="train-encoder")
+    inspection = inspect_dataset(config.data, max_trajectories=2, max_target_samples=3)
+    assert inspection.flux_stats is not None
+    assert inspection.flux_stats["count"] == 3

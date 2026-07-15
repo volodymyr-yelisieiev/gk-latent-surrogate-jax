@@ -6,6 +6,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from gk_surrogate import pipeline as pipeline_module
 from gk_surrogate.config.load import load_config
 from gk_surrogate.data.latent_cache import LatentCacheDataset, LatentCacheWriter
 from gk_surrogate.evaluation.flux_head import evaluate_flux_head, fit_ridge_flux_head
@@ -98,6 +99,7 @@ def test_flux_head_pipeline_writes_metrics_and_predictions(repo_root, tmp_path):
 
 
 def test_flux_head_pipeline_honors_configured_cache_trajectories(repo_root, tmp_path, monkeypatch):
+    monkeypatch.setattr(pipeline_module, "_requires_complete_protocol", lambda _config: False)
     monkeypatch.setenv("GK_CYCLONE_DATA_ROOT", "/tmp/gk-cyclone-root")
     for index in range(4):
         monkeypatch.setenv(f"GK_SMALL_VALIDATION_TRAJ_{index}", f"traj-{index}")

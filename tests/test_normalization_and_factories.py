@@ -92,6 +92,24 @@ def test_dataset_normalization_includes_between_snapshot_variance():
     assert float(trajectory_stats.std) == pytest.approx(5.0)
 
 
+def test_dataset_normalization_can_be_restricted_to_split_trajectories():
+    class SplitDataset:
+        def trajectory_ids(self):
+            return ("train", "held_out")
+
+        def num_timesteps(self, trajectory_id):
+            return 2
+
+        def get_snapshot(self, trajectory_id, timestep):
+            del timestep
+            value = 1.0 if trajectory_id == "train" else 1_000.0
+            return type("Sample", (), {"x": np.full((4,), value, dtype=np.float32)})()
+
+    stats = estimate_dataset_stats(SplitDataset(), trajectory_ids=("train",))
+    assert float(stats.mean) == pytest.approx(1.0)
+    assert float(stats.std) == pytest.approx(1e-6)
+
+
 def test_dataset_normalization_is_stable_for_large_offsets():
     class LargeOffsetDataset:
         def trajectory_ids(self):

@@ -1,5 +1,6 @@
 import tempfile
 
+import jax
 import jax.numpy as jnp
 import pytest
 
@@ -7,7 +8,13 @@ from gk_surrogate.losses.diagnostics import spectra_mse
 from gk_surrogate.losses.latent import latent_prediction_loss
 from gk_surrogate.metrics.aggregate import aggregate_metrics, save_metrics_csv, save_metrics_json
 from gk_surrogate.metrics.diagnostics import flux_rmse, spectra_pearson_corr, spectra_relative_l2
-from gk_surrogate.metrics.latent import latent_mse, latent_relative_l2, rollout_mse_by_step
+from gk_surrogate.metrics.latent import (
+    latent_cosine_similarity,
+    latent_mse,
+    latent_relative_l2,
+    rollout_cosine_by_step,
+    rollout_mse_by_step,
+)
 from gk_surrogate.metrics.rollout import (
     horizon_until_threshold,
     rollout_stability,
@@ -34,6 +41,7 @@ def test_rollout_metrics_and_aggregation_outputs():
     assert mse_by_step.shape == (3,)
     assert rollout_stability(pred)
     assert horizon_until_threshold(mse_by_step, 0.5) == 1
+    assert horizon_until_threshold(jnp.asarray([0.1, jnp.nan, 0.2]), 0.5) == 2
     assert summarize_rollout(pred, target, error_threshold=0.5)["latent/mse_by_step"].shape == (3,)
 
     aggregated = aggregate_metrics([{"loss": jnp.asarray(1.0)}, {"loss": jnp.asarray(3.0)}])
@@ -92,3 +100,22 @@ def test_metrics_reject_broadcasting_and_preserve_global_relative_l2():
         aggregate_metrics([{"error": jnp.ones((2,))}, {"error": jnp.ones((3,))}])
     with pytest.raises(ValueError, match="non-empty"):
         horizon_until_threshold(jnp.asarray([]), 1.0)
+    with pytest.raises(ValueError, match="non-negative"):
+        horizon_until_threshold(jnp.asarray([0.1]), -1.0)
+    with pytest.raises(ValueError, match="finite"):
+        horizon_until_threshold(jnp.asarray([0.1]), float("nan"))
+
+
+def test_cosine_and_correlation_metrics_are_scale_invariant_for_small_values():
+    latent = jnp.asarray([[1.0e-5, -2.0e-5, 3.0e-5]])
+    rollout = latent[:, None, :]
+    spectrum = jnp.asarray([[1.0e-5, 2.0e-5, 4.0e-5]])
+
+    assert jnp.allclose(latent_prediction_loss(latent, latent, mode="cosine"), 0.0, atol=1e-6)
+    assert jnp.allclose(latent_cosine_similarity(latent, latent), 1.0, atol=1e-6)
+    assert jnp.allclose(rollout_cosine_by_step(rollout, rollout), jnp.ones((1,)), atol=1e-6)
+    assert jnp.allclose(spectra_pearson_corr({"ky": spectrum}, {"ky": spectrum})["ky"], 1.0, atol=1e-6)
+
+    zeros = jnp.zeros((1, 3))
+    grad = jax.grad(lambda value: latent_prediction_loss(value, zeros, mode="cosine"))(zeros)
+    assert jnp.all(jnp.isfinite(grad))

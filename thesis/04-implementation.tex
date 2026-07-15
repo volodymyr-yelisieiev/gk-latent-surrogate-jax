@@ -1,0 +1,79 @@
+\cleardoubleoddpage
+\chapter{Implementation}
+\label{chap:implementation}
+
+\section{Software Architecture}
+
+The implementation is organized as a Python package named \code{gk\_surrogate}. Configuration,
+data access, models, training, evaluation, metrics, and device-parallel utilities are separate
+modules. The public command-line interface exposes six principal operations:
+
+\begin{enumerate}
+  \item inspect a dataset and validate its shape and targets;
+  \item train an encoder;
+  \item embed trajectories into a latent cache;
+  \item evaluate a frozen flux head and plot the representation;
+  \item train a latent sequence model; and
+  \item evaluate an autoregressive rollout.
+\end{enumerate}
+
+YAML experiment files are validated with Pydantic schemas and written back as resolved
+configuration artifacts. Environment variables supply machine-specific paths. This makes the
+scientific protocol reviewable without hard-coding the server layout in source code.
+
+\section{Data Adapters}
+
+All raw data sources implement the same trajectory interface: enumerate trajectory identifiers,
+report the number of time steps and snapshot shape, and retrieve a snapshot plus diagnostics. A
+synthetic generator supports deterministic end-to-end tests. A generic HDF5 adapter supports small
+fixtures and alternative schemas. The principal real-data adapter reads the confirmed
+Cyclone/KvikIO directory layout and maps upstream fields into the internal channel-first contract.
+
+The direct reader detects float32 and BF16 shard availability, but arrays presented to model code
+are float32. The selected data configuration uses the distribution field \code{df}, offset 80,
+temporal subsampling by eight, spatial inverse transforms, and stored 32-bin \code{kyspec} and
+\code{fluxspec} targets. Potential-field input is supported by generic adapters but is not part of
+the selected evidence.
+
+File operations are deliberately outside \code{jax.jit}. NumPy and HDF5 objects are converted at
+the boundary, after which training steps accept JAX arrays. This prevents Python I/O from being
+captured by compiled computations.
+
+\section{JAX Execution and Parallelism}
+
+Model computations use Flax Linen modules. Training steps are pure enough to be transformed with
+automatic differentiation and just-in-time compilation. Optax composes warmup, Adam-style updates,
+weight decay, and gradient clipping. Random keys are explicit and derived from fixed experiment
+seeds.
+
+The same source supports single-device execution and single-host data parallelism. In automatic
+mode, batches are sharded across visible devices and the code uses \code{pmap}; no GPU count is
+hard-coded. The medium experiments recorded four CUDA devices. Portable tests set
+\code{JAX\_PLATFORM\_NAME=cpu} and use tiny synthetic tensors. Multi-node execution is outside the
+scope of the thesis.
+
+\section{Verification Strategy}
+
+Verification is layered. Unit tests cover shape guards, configuration consistency, data adapters,
+normalization, splits, augmentations, losses, model forward passes, training steps, metrics,
+checkpointing, and CLI contracts. A synthetic smoke pipeline executes the complete lifecycle from
+inspection to rollout plots without real data or a GPU. Static checks include Ruff and mypy, and the
+test gate enforces at least 95\% line coverage. Packaging is checked by building both a source
+distribution and wheel.
+
+The synthetic pipeline is engineering evidence, not a scientific result. Its purpose is to detect
+interface regressions and verify that the repository remains executable independently of private
+data and hardware.
+
+\section{Provenance and Artifact Policy}
+
+Each experiment output records its resolved config, Git state, metrics, and device report when
+applicable. Checkpoints and latent caches store metadata linking them to upstream artifacts. Raw
+data, checkpoints, HDF5 caches, generated plots, W\&B state, and build products are excluded from
+version control. Thesis-facing documentation records stable tables and claim boundaries while
+large artifacts remain in ignored storage.
+
+This policy also separates protocol tiers. Synthetic smoke runs establish software correctness;
+one-trajectory and small experiments establish data binding and validation behavior; the medium
+cache supplies the main quantitative comparison. Numbers from different caches, splits, horizons,
+or aggregation rules are not combined in one headline table.

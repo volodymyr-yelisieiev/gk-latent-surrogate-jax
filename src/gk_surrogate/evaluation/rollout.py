@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from collections.abc import Iterable, Mapping
 from typing import Any
 
@@ -84,11 +85,11 @@ def latent_rollout_metrics(pred: Array, target: Array, eps: float = 1e-8) -> dic
     error = pred - target
     mse_per_rollout = jnp.mean(jnp.square(error), axis=-1)
     mae_per_rollout = jnp.mean(jnp.abs(error), axis=-1)
-    relative_l2_by_step = jnp.linalg.norm(error, axis=(0, 2)) / (
-        jnp.linalg.norm(target, axis=(0, 2)) + eps
-    )
+    relative_l2_by_step = jnp.linalg.norm(error, axis=(0, 2)) / (jnp.linalg.norm(target, axis=(0, 2)) + eps)
     numerator = jnp.sum(pred * target, axis=-1)
-    denom = jnp.maximum(jnp.linalg.norm(pred, axis=-1) * jnp.linalg.norm(target, axis=-1), eps)
+    pred_norm = jnp.sqrt(jnp.sum(jnp.square(pred), axis=-1) + eps**2)
+    target_norm = jnp.sqrt(jnp.sum(jnp.square(target), axis=-1) + eps**2)
+    denom = pred_norm * target_norm
     cosine_per_rollout = numerator / denom
     mse_by_step = jnp.mean(mse_per_rollout, axis=0)
     mae_by_step = jnp.mean(mae_per_rollout, axis=0)
@@ -115,7 +116,11 @@ def horizon_until_threshold(mse_by_step: Array, threshold: float) -> int:
     """Return first 1-based horizon whose error exceeds threshold, or T if none."""
 
     values = np.asarray(mse_by_step)
-    crossed = np.nonzero(values > threshold)[0]
+    if values.ndim != 1 or values.shape[0] == 0:
+        raise ValueError("mse_by_step must be a non-empty one-dimensional array")
+    if not math.isfinite(threshold) or threshold < 0:
+        raise ValueError("threshold must be finite and non-negative")
+    crossed = np.nonzero(~np.isfinite(values) | (values > threshold))[0]
     return int(crossed[0] + 1) if len(crossed) else int(values.shape[0])
 
 
@@ -179,9 +184,7 @@ def evaluate_rollout_batches(
             raise KeyError("rollout batch must contain context/target arrays")
         target = jnp.asarray(target)
         if target.ndim != 3 or target.shape[1] < rollout_steps:
-            raise ValueError(
-                f"rollout target must have shape [B, T, Z] with T >= {rollout_steps}, got {target.shape}"
-            )
+            raise ValueError(f"rollout target must have shape [B, T, Z] with T >= {rollout_steps}, got {target.shape}")
         pred = (
             persistence_rollout(context, rollout_steps)
             if use_persistence

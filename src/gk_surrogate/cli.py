@@ -50,11 +50,27 @@ def _build_parser() -> argparse.ArgumentParser:
         subparser = subparsers.add_parser(command)
         _add_common_args(subparser)
         subparser.set_defaults(func=_dispatch)
-    subparsers.choices["inspect-data"].add_argument("--max-trajectories", type=int, default=2)
-    subparsers.choices["inspect-data"].add_argument("--max-depth", type=int, default=3)
-    subparsers.choices["inspect-data"].add_argument("--max-target-samples", type=int, default=256)
-    subparsers.choices["benchmark-step-time"].add_argument("--measured-steps", type=int, default=3)
+    subparsers.choices["inspect-data"].add_argument("--max-trajectories", type=_positive_int, default=2)
+    subparsers.choices["inspect-data"].add_argument("--max-depth", type=_non_negative_int, default=3)
+    subparsers.choices["inspect-data"].add_argument("--max-target-samples", type=_positive_int, default=256)
+    subparsers.choices["benchmark-step-time"].add_argument("--measured-steps", type=_positive_int, default=3)
     return parser
+
+
+def _positive_int(value: str) -> int:
+    parsed = int(value)
+    if parsed < 1:
+        msg = "must be a positive integer"
+        raise argparse.ArgumentTypeError(msg)
+    return parsed
+
+
+def _non_negative_int(value: str) -> int:
+    parsed = int(value)
+    if parsed < 0:
+        msg = "must be a non-negative integer"
+        raise argparse.ArgumentTypeError(msg)
+    return parsed
 
 
 def _add_common_args(parser: argparse.ArgumentParser) -> None:

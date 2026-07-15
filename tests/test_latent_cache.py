@@ -40,6 +40,12 @@ def test_latent_cache_roundtrip_metadata_and_windows(tmp_path):
     assert valid_sequence_starts(dataset, "traj", context_length=4, prediction_length=1) == (0, 1)
     with pytest.raises(IndexError, match="exceeds"):
         dataset.get_sequence_window("traj", 3, context_length=4, prediction_length=1)
+    with pytest.raises(ValueError, match="start"):
+        dataset.get_sequence_window("traj", -1, context_length=4, prediction_length=1)
+    with pytest.raises(ValueError, match="must be positive"):
+        dataset.get_sequence_window("traj", 0, context_length=0, prediction_length=1)
+    with pytest.raises(ValueError, match="must be positive"):
+        valid_sequence_starts(dataset, "traj", context_length=4, prediction_length=0)
 
 
 def test_latent_cache_roundtrips_path_like_trajectory_ids(tmp_path):
@@ -85,6 +91,8 @@ def test_latent_cache_reads_legacy_group_names(tmp_path):
 
 def test_latent_cache_rejects_inconsistent_dim(tmp_path):
     writer = LatentCacheWriter(tmp_path / "cache.h5", latent_dim=3)
+    with pytest.raises(ValueError, match="trajectory_id"):
+        writer.write_trajectory("", np.ones((2, 3), dtype=np.float32))
     with pytest.raises(ValueError, match="expected z shape"):
         writer.write_trajectory("bad", np.ones((2, 4), dtype=np.float32))
     with pytest.raises(ValueError, match="flux length"):

@@ -71,6 +71,12 @@ def _apply_override(config: dict[str, Any], override: str) -> None:
         raise ValueError(msg)
     dotted_key, raw_value = override.split("=", 1)
     keys = dotted_key.split(".")
+    if any(not key for key in keys):
+        msg = f"override key must be a non-empty dotted path: {dotted_key!r}"
+        raise ValueError(msg)
+    if not raw_value:
+        msg = f"override value must be explicit; use null or an empty quoted value: {override}"
+        raise ValueError(msg)
     cursor: dict[str, Any] = config
     for key in keys[:-1]:
         next_value = cursor.setdefault(key, {})

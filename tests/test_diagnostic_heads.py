@@ -38,3 +38,5 @@ def test_diagnostic_heads_reject_invalid_or_colliding_names():
         DiagnosticHeads(flux_dim=-1).init(jax.random.PRNGKey(2), z, train=False)
     with pytest.raises(ValueError, match="remain unique"):
         DiagnosticHeads(spectra_dims={"a-b": 2, "a_b": 2}).init(jax.random.PRNGKey(3), z, train=False)
+    with pytest.raises(ValueError, match="rate < 1"):
+        DiagnosticHeads(flux_dim=1, dropout_rate=1.0).init(jax.random.PRNGKey(4), z, train=False)

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import builtins
+import hashlib
 import json
 import pickle
+import subprocess
 import sys
 from types import SimpleNamespace
 
@@ -66,6 +68,37 @@ def test_utils_training_state_checkpoint_and_logging(tmp_path):
     logger.log({"loss": 1.0})
     logger.write_summary({"loss": 1.0})
     assert collect_git_info(tmp_path)["git_available"] in {True, False}
+
+
+def test_collect_git_info_records_exact_patch_hash_and_untracked_paths(tmp_path):
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "config", "user.email", "test@example.invalid"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "config", "user.name", "Test User"], cwd=tmp_path, check=True)
+    tracked = tmp_path / "tracked.txt"
+    tracked.write_text("before\n", encoding="utf-8")
+    subprocess.run(["git", "add", "tracked.txt"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "commit", "-qm", "initial"], cwd=tmp_path, check=True)
+
+    clean = collect_git_info(tmp_path)
+    assert clean["tracked_diff_sha256"] == hashlib.sha256(b"").hexdigest()
+    assert clean["has_untracked_paths"] is False
+    assert clean["untracked_path_count"] == 0
+    assert clean["untracked_paths"] == []
+
+    tracked.write_text("after\n", encoding="utf-8")
+    (tmp_path / "new.txt").write_text("untracked\n", encoding="utf-8")
+    expected_diff = subprocess.run(
+        ["git", "diff", "--binary", "HEAD", "--"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    ).stdout
+    dirty = collect_git_info(tmp_path)
+    assert dirty["dirty"] is True
+    assert dirty["tracked_diff_sha256"] == hashlib.sha256(expected_diff).hexdigest()
+    assert dirty["has_untracked_paths"] is True
+    assert dirty["untracked_path_count"] == 1
+    assert dirty["untracked_paths"] == ["new.txt"]
 
 
 def test_metrics_logger_disabled_wandb_does_not_import(tmp_path, monkeypatch):

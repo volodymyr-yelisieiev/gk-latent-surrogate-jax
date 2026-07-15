@@ -48,3 +48,14 @@ def test_negative_cosine_stops_gradient_through_target():
 def test_negative_cosine_rejects_shape_broadcasting():
     with pytest.raises(ValueError, match="shapes must match"):
         negative_cosine_similarity(jnp.ones((2, 1)), jnp.ones((2, 3)))
+
+
+def test_negative_cosine_is_scale_invariant_for_small_nonzero_vectors():
+    vector = jnp.asarray([[1.0e-5, -2.0e-5, 3.0e-5]])
+    assert jnp.allclose(negative_cosine_similarity(vector, vector), -1.0, atol=1e-6)
+
+
+def test_negative_cosine_has_finite_gradient_at_zero():
+    zeros = jnp.zeros((2, 4))
+    grad = jax.grad(lambda value: negative_cosine_similarity(value, zeros))(zeros)
+    assert jnp.all(jnp.isfinite(grad))

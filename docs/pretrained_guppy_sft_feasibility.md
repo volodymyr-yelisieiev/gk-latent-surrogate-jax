@@ -1,7 +1,5 @@
 # Pretrained Guppy/SFT Evaluation
 
-Evidence reviewed: 2026-07-15.
-
 ## Outcome
 
 THESIS-19 completed the optional GuppyLM trunk-transfer and supervised fine-tuning
@@ -40,12 +38,17 @@ Sources checked:
 The training comparison is recorded in W&B run `sequence-training-comparison-medium`
 (`doy8yhgt`). All three runs belong to `medium-scale-latent-surrogate`.
 
+These rows are historical records from different protocols and must not be compared directly. The
+`17.8415` validation record belongs to a mixed representation/downstream split and is invalidated.
+The `11.5816` test record is an internally seed-consistent standalone seed-62 protocol, but it has
+no matched persistence evaluation or validation-based selection under the accepted seed-52 cache.
+
 ## Conclusion
 
-The completed adapter feasibility study did not replace the from-scratch main result. The
-historical cache-normalized from-scratch transformer remains the selected main-cache model
-with test flux RMSE `9.2270`; the SFT result belongs to a distinct protocol and must be
-reported separately.
+The completed adapter feasibility study establishes only that the transfer path executed and
+rejected incompatible mappings explicitly. It does not establish a comparative performance claim,
+and neither its standalone metric nor the historical from-scratch table may be selected as a main
+result without a matched baseline, validation-only selection, and the accepted locked protocol.
 
 The current tracked main tree contains neither the transfer utility nor the SFT checkpoint.
 Reproducing this experiment therefore requires restoring the THESIS-19 conversion artifact

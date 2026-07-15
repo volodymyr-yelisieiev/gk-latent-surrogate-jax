@@ -1,0 +1,172 @@
+\cleardoubleoddpage
+\chapter{Results}
+\label{chap:results}
+
+\section{Protocol Integrity Audit}
+
+Before final model assessment, the retained experiment lineage was reconstructed from resolved
+configs, encoder metadata, latent-cache metadata, and trajectory identifiers. This audit found that
+the encoder and medium cache used trajectory-split seed 52, while historical downstream runs used
+seeds 53 or 54. Four of the five trajectories labelled as test under each downstream seed had
+therefore occurred in the seed-52 encoder training split. The historical headline table, including
+the previously reported flux RMSE 9.2270, is not an end-to-end held-out result and is excluded from
+the scientific conclusions.
+
+The corrected implementation records the selected trajectory identifiers, a SHA-256 manifest of
+their ordering, the data-split seed, training seed, upstream cache and checkpoint paths, horizon,
+and aggregation rule. It also rejects an encoder, cache, or sequence checkpoint whose recorded
+split seed differs from the evaluation configuration. All results below use data-split seed 52 from
+representation learning through evaluation. Validation and test manifests differ, while every row
+within a split has the same manifest.
+
+\section{Representation Inspection}
+
+\autoref{fig:representation} shows descriptive projections of the 1,173 cached latent vectors.
+Colour variation indicates association with flux, but neither PCA nor t-SNE is used as proof of
+prediction quality. Under the corrected seed-52 split, a ridge head fitted only on 943 frozen
+training latents obtains validation flux RMSE 13.1779 on 115 held-out latent points. This answers
+RQ1 quantitatively: flux is linearly accessible from the representation under the canonical split,
+without establishing that the representation is sufficient for temporal prediction.
+
+\begin{figure}[htbp]
+  \centering
+  \begin{minipage}[t]{0.48\textwidth}
+    \centering
+    \includegraphics[width=\linewidth]{pca_flux.png}
+    \small (a) PCA
+  \end{minipage}\hfill
+  \begin{minipage}[t]{0.48\textwidth}
+    \centering
+    \includegraphics[width=\linewidth]{tsne_perplexity_30_flux.png}
+    \small (b) t-SNE, perplexity 30
+  \end{minipage}
+  \caption{Descriptive projections of the medium-cache latents, coloured by scalar flux. These
+  plots support representation inspection but are not used for temporal-model selection.}
+  \label{fig:representation}
+\end{figure}
+
+\section{Validation-Based Model Selection}
+
+The model family and normalization choice are fixed using the seed-52 validation split before the
+test split is inspected. Each validation row uses five trajectories, 40 windows, an eight-step
+recursive horizon, and trajectory-balanced aggregation. Flux RMSE is the predeclared primary
+selection metric.
+
+\begin{table}[htbp]
+  \centering
+  \caption{Seed-52 validation results used for model selection. Lower is better. The bold row is
+  the selected learned model; persistence is a parameter-free reference rather than a candidate
+  architecture.}
+  \label{tab:validation-results}
+  \scriptsize
+  \setlength{\tabcolsep}{3.5pt}
+  \begin{tabular}{lrrrrc}
+    \toprule
+    Model & Latent MSE & Flux RMSE & Flux MAE & Flux rel. error & Stable \\
+    \midrule
+    Persistence & 0.4341 & 17.7557 & 12.7683 & 0.2655 & yes \\
+    GRU & 0.6144 & 19.9275 & 14.3363 & 0.2905 & yes \\
+    Transformer & 0.4823 & 18.6828 & 14.0105 & 0.2885 & yes \\
+    GRU, cache-normalized & 0.5478 & 19.4800 & 14.7968 & 0.3112 & yes \\
+    \textbf{Transformer, cache-normalized} & \textbf{0.4560} & \textbf{18.1793} &
+      \textbf{12.9650} & \textbf{0.2664} & yes \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+The cache-normalized Transformer is the best learned candidate on validation flux RMSE. It does not
+beat persistence on that split, but it is selected without access to the test outcomes because the
+research question concerns the strongest learned sequence model. GRU variants are not carried
+forward. This separation prevents choosing a model after observing multiple test rows.
+
+Cache normalization lowers validation flux RMSE from 19.9275 to 19.4800 for the GRU and from
+18.6828 to 18.1793 for the Transformer. It improves both learned point estimates without changing
+their ranking: the Transformer remains ahead of the GRU, and persistence remains ahead of every
+learned candidate. RQ3 is therefore answered as a consistent improvement in the two point estimates,
+but not as a ranking change or a replicated effect.
+
+\section{Locked Test Comparison}
+
+After selection, only the fixed cache-normalized Transformer and the predeclared persistence
+baseline are evaluated on the seed-52 test split. Both rows use the same five test trajectories,
+40 rollout windows, eight forecast steps, and the same stored trajectory manifest (SHA-256 prefix
+\texttt{519a2b02}).
+
+\begin{table}[htbp]
+  \centering
+  \caption{Locked seed-52 test comparison. Flux RMSE is the primary metric; lower is better for all
+  displayed errors.}
+  \label{tab:main-results}
+  \scriptsize
+  \setlength{\tabcolsep}{2.7pt}
+  \begin{tabular}{lrrrrrc}
+    \toprule
+    Model & Latent MSE & Flux RMSE & Flux MAE & Flux rel. error & Spectra rel. $L_2$ & Stable \\
+    \midrule
+    Persistence & 0.1019 & 11.9889 & 10.7619 & 2.2474 & 19.5257 & yes \\
+    Transformer (cache norm.) & \textbf{0.0738} & \textbf{11.4255} & \textbf{10.2571} &
+      \textbf{2.2083} & \textbf{19.1686} & yes \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+The selected Transformer improves the primary test point estimate: its flux RMSE is 4.70\% lower
+than persistence. It also reduces flux MAE by 4.69\%, latent MSE by 27.55\%, and aggregate spectra
+relative $L_2$ by 1.83\%. Per-trajectory flux RMSE improves in three of five cases. The paired mean
+difference (Transformer minus persistence) is $-0.8279$ with a descriptive 95\% t interval
+$[-2.2249,0.5692]$; because the interval includes zero and only one training seed is used, this is
+bounded evidence for the fixed protocol rather than a significance or equivalence claim.
+
+\begin{figure}[htbp]
+  \centering
+  \begin{minipage}[t]{0.48\textwidth}
+    \centering
+    \includegraphics[width=\linewidth]{verified_latent_mse_by_step.png}
+    \small (a) Latent MSE
+  \end{minipage}\hfill
+  \begin{minipage}[t]{0.48\textwidth}
+    \centering
+    \includegraphics[width=\linewidth]{verified_flux_mse_by_step.png}
+    \small (b) Flux MSE
+  \end{minipage}
+  \caption{One-based horizon curves comparing the selected cache-normalized Transformer and
+  persistence on the locked seed-52 test split. Shaded dispersion is between the five trajectories.}
+  \label{fig:selected-rollout}
+\end{figure}
+
+The selected model remains finite for every evaluated window. Its aggregate latent MSE is below
+persistence across the eight-step comparison, while its flux RMSE curve remains close to the
+reference throughout the horizon. Neither curve exhibits uncontrolled divergence within the short
+rollout.
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=0.62\textwidth]{paired_test_flux_rmse.png}
+  \caption{Paired trajectory-level flux RMSE on the locked test split. Labels identify the five
+  trajectories without exposing dataset paths; green segments improve and orange segments do not.}
+  \label{fig:paired-flux}
+\end{figure}
+
+\section{Spectral Diagnostics}
+
+The selected Transformer yields aggregate spectra relative $L_2$ 19.1686 compared with 19.5257 for
+persistence. The value is dominated by the \code{kyspec} component (35.2386 versus 35.9227), while
+\code{fluxspec} relative errors are 3.0987 and 3.1287. Aggregate shape correlations are nearly
+identical (0.53439 versus 0.53419), so the relative-error change should not be interpreted as a
+general improvement in spectral structure. The large relative values also show that scale-sensitive
+spectral prediction remains a weakness of both approaches.
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=0.68\textwidth]{verified_spectra_mse_by_step.png}
+  \caption{Aggregate spectra MSE by forecast horizon for the selected Transformer and persistence
+  on the locked seed-52 test split. The two spectra have different numerical scales, so the curves must be read
+  together with per-spectrum relative and shape metrics.}
+  \label{fig:spectra-horizon}
+\end{figure}
+
+Historical log-spectra runs with mixed representation/downstream splits are retained only as
+invalidated engineering records. The language-model-transfer test is a separate, internally
+seed-consistent seed-62 protocol, but it has no matched persistence row or validation-based model
+selection under the accepted seed-52 cache. It is therefore excluded from the principal comparison
+without being described as split-leaked.

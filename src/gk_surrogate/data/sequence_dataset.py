@@ -12,6 +12,9 @@ def valid_sequence_starts(
     context_length: int,
     prediction_length: int,
 ) -> tuple[int, ...]:
+    if context_length < 1 or prediction_length < 1:
+        msg = "context_length and prediction_length must be positive"
+        raise ValueError(msg)
     total = dataset.num_timesteps(trajectory_id)
     window = context_length + prediction_length
     if total < window:

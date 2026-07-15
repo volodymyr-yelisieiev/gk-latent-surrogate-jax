@@ -8,7 +8,7 @@ import jax.numpy as jnp
 from flax import linen as nn
 from flax import struct
 
-from gk_surrogate.models.encoders import _activation
+from gk_surrogate.models.encoders import _activation, _validate_dropout_rate
 
 Array = jnp.ndarray
 
@@ -40,6 +40,7 @@ class DiagnosticHeads(nn.Module):
             raise ValueError(f"Expected z with shape [B, Z], got shape {z.shape}.")
         if self.flux_dim < 0:
             raise ValueError("flux_dim must be non-negative.")
+        _validate_dropout_rate(self.dropout_rate)
         if any(hidden_dim <= 0 for hidden_dim in self.hidden_dims):
             raise ValueError("hidden_dims values must be positive.")
 

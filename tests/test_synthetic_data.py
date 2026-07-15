@@ -36,6 +36,14 @@ def test_build_dataset_and_split_no_overlap(tiny_config_path):
     assert split["test"]
 
 
+def test_synthetic_factory_respects_requested_diagnostic_targets(tiny_config_path):
+    config = load_config(tiny_config_path, command="train-encoder")
+    data = config.data.model_copy(update={"target_flux": False, "target_spectra": ("ky",)})
+    sample = build_dataset(data).get_snapshot("synthetic_0000", 0)
+    assert sample.targets.flux is None
+    assert set(sample.targets.spectra) == {"ky"}
+
+
 def test_split_rejects_invalid_ratios_and_preserves_small_dataset():
     with pytest.raises(ValueError, match="finite and non-negative"):
         split_trajectory_ids(["a", "b"], ratios=(0.8, -0.1, 0.3))

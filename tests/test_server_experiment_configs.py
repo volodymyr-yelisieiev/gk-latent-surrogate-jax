@@ -65,6 +65,38 @@ def test_server_experiment_configs_load_without_personal_paths(repo_root, monkey
             assert config.data.cyclone.trajectories == SMALL_VALIDATION_TRAJECTORIES
 
 
+def test_server_pipeline_configs_share_one_split_seed_per_cache(repo_root, monkeypatch):
+    """Every cache consumer must preserve the producer's trajectory split."""
+
+    monkeypatch.setenv("GK_CYCLONE_DATA_ROOT", "/tmp/gk-cyclone-root")
+    for index, trajectory_id in enumerate(SMALL_VALIDATION_TRAJECTORIES):
+        monkeypatch.setenv(f"GK_SMALL_VALIDATION_TRAJ_{index}", trajectory_id)
+    config_dir = repo_root / "configs" / "experiment"
+    configs = {
+        filename: load_config(config_dir / filename, command=command)
+        for filename, command in SERVER_CONFIG_COMMANDS.items()
+    }
+    cache_producers = {
+        config.latent_cache.path: config
+        for filename, config in configs.items()
+        if SERVER_CONFIG_COMMANDS[filename] == "embed-dataset" and config.latent_cache.path
+    }
+    consumer_commands = {
+        "train-sequence",
+        "evaluate-flux-head",
+        "plot-representation",
+        "evaluate-rollout",
+    }
+    for filename, config in configs.items():
+        if SERVER_CONFIG_COMMANDS[filename] not in consumer_commands:
+            continue
+        producer = cache_producers.get(config.latent_cache.path)
+        assert producer is not None, f"{filename} has no configured latent-cache producer"
+        assert config.data.seed == producer.data.seed, (
+            f"{filename} data.seed={config.data.seed} differs from cache producer data.seed={producer.data.seed}"
+        )
+
+
 def test_server_reproducibility_docs_exist(repo_root):
     docs = {
         "server_gpu_setup.md": "server",

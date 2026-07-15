@@ -1,0 +1,88 @@
+\cleardoubleoddpage
+\chapter{Background and Related Work}
+\label{chap:background}
+
+\section{Gyrokinetic Turbulence}
+
+Gyrokinetic theory reduces the six-dimensional kinetic description by averaging over the fast
+gyromotion while retaining three spatial and two velocity-space coordinates. The resulting
+five-dimensional distribution function still supports nonlinear turbulence, scale interactions,
+and transport. A complete derivation is outside the scope of this thesis; the multiscale framework
+of \citet{abel2013multiscale} provides the physical context. For machine learning, the important
+consequence is the size and anisotropy of each state: a snapshot is not a conventional two- or
+three-dimensional image, and each axis has a distinct physical interpretation.
+
+The data used here provide the distribution-function field together with a scalar flux target and
+two one-dimensional spectra, denoted \code{kyspec} and \code{fluxspec}. Flux summarizes a central
+transport quantity, whereas spectra expose some scale-dependent structure. They are therefore
+treated as diagnostic targets rather than attempting a full reconstruction of $x_t$.
+
+\section{Neural Surrogates for Gyrokinetics}
+
+Recent work has begun to apply neural surrogates directly to gyrokinetic simulations. GyroSwin
+extends hierarchical vision Transformers to five-dimensional fields and couples distribution and
+potential representations through specialized modules \citep{paischer2025gyroswin}. Its ambition
+is full-field surrogacy and physically verifiable transport estimates. GKFieldFlow instead models
+three-dimensional potential fields with a spatial encoder--decoder and temporal convolutions
+\citep{ashourvan2026gkfieldflow}. These systems motivate learning temporal structure but solve a
+different prediction problem from the compact diagnostic-preserving latent model studied here.
+
+The distinction matters for evaluation. A full-field model may be assessed through reconstruction,
+spectral fidelity, and transport diagnostics. This thesis has no decoder and therefore makes no
+full-field reconstruction claim. Its strongest evidence is an internal comparison among sequence
+models that share one encoder, latent cache, split, and rollout protocol.
+
+Neural-surrogate comparisons also require a baseline that reflects the temporal regularity of the
+data. Persistence is particularly demanding when adjacent states change slowly: a learned model
+must improve on copying the latest observation, not merely achieve a small absolute error. Model
+choice must be separated from final assessment as well. Validation trajectories support choices
+such as architecture and normalization, whereas test trajectories estimate performance only after
+those choices are fixed. If representation learning has already observed a downstream test
+trajectory, the complete surrogate is not held out even when the temporal model itself has not
+trained on that trajectory. These principles motivate the trajectory-level lineage checks and the
+validation-then-locked-test protocol used in this thesis.
+
+\section{Self-Supervised Representation Learning}
+
+Representation learning seeks a mapping $f_\theta(x)=z$ that retains useful information while
+discarding nuisance variation. Contrastive approaches often compare positive and negative pairs.
+SimSiam shows that a Siamese architecture can learn without negative pairs or a momentum encoder,
+provided a predictor and stop-gradient operation prevent trivial collapse
+\citep{chen2021simsiam}. Given two augmented views $x^{(1)}$ and $x^{(2)}$, the shared encoder and
+projection head produce $p_1$ and $p_2$, while a prediction head produces $q_1$ and $q_2$. A
+symmetric negative cosine objective aligns each prediction with the stopped projection of the
+other view.
+
+PCA gives a linear projection for inspecting broad variance structure, while t-SNE constructs a
+nonlinear neighbourhood-preserving visualization \citep{vandermaaten2008tsne}. Neither method is a
+forecast metric: apparent clusters or gradients can depend on scaling and projection parameters.
+They are therefore used only for descriptive inspection in this work.
+
+Scientific data require conservative augmentations. Transformations that are harmless for natural
+images can alter physical meaning. The present implementation uses small additive noise, amplitude
+jitter, and sparse element masking. It does not use arbitrary crops or rotations. Moreover, the
+self-supervised objective is combined with flux and spectra supervision so the latent space is
+explicitly encouraged to retain the selected diagnostics.
+
+\section{Latent Dynamics Models}
+
+Once snapshots are embedded, the temporal problem becomes vector sequence prediction. Persistence
+copies the final context vector and provides a parameter-free baseline. An MLP-delta model predicts
+a residual from the flattened context. GRUs use learned gates to update a recurrent state and are a
+compact recurrent baseline \citep{cho2014gru}. Transformers replace recurrence with self-attention
+over the context \citep{vaswani2017attention}. A causal mask prevents a token from accessing future
+positions, and the final token representation predicts the next latent.
+
+Autoregressive rollout introduces distribution shift: the first prediction is conditioned on true
+context, whereas later predictions are conditioned partly on previous model outputs. Consequently,
+one-step training loss alone does not establish rollout quality. This thesis evaluates recursive
+eight-step predictions and reports each horizon as well as aggregated metrics.
+
+\section{Scientific Machine-Learning Stack}
+
+JAX provides accelerator-oriented array computation together with transformations for automatic
+differentiation, compilation, vectorization, and device parallelism \citep{jax2026}. Flax supplies
+the neural-network module abstraction used here, and Optax supplies composable optimization
+updates \citep{flax2026,optax2026}. The implementation uses pure JAX computation at the model and
+training boundary, while Python, NumPy, HDF5, and KvikIO-compatible readers handle file I/O. This
+division keeps I/O outside compiled functions and permits CPU smoke tests alongside GPU training.

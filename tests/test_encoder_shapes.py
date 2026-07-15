@@ -72,3 +72,23 @@ def test_patch_transformer_encoder_shape_and_invalid_spatial_dims():
         )
     with pytest.raises(ValueError, match="num_heads"):
         PatchTransformerEncoder(latent_dim=10, num_heads=0).init(jax.random.PRNGKey(5), x, train=False)
+
+
+@pytest.mark.parametrize(
+    "model",
+    [
+        FlattenMLPEncoder(latent_dim=4, dropout_rate=-0.1),
+        ConvNDEncoder(latent_dim=4, channels=(4,), kernel_size=(1,) * 5, dropout_rate=1.0),
+        PatchTransformerEncoder(latent_dim=4, embed_dim=8, num_heads=2, attention_dropout_rate=1.0),
+    ],
+)
+def test_encoders_reject_invalid_dropout_rates(model):
+    with pytest.raises(ValueError, match="rate < 1"):
+        model.init(jax.random.PRNGKey(6), _snapshot_batch(), train=False)
+
+
+def test_patch_transformer_rejects_zero_width_mlp():
+    with pytest.raises(ValueError, match="at least one MLP feature"):
+        PatchTransformerEncoder(latent_dim=4, embed_dim=8, num_heads=2, mlp_ratio=0.01).init(
+            jax.random.PRNGKey(7), _snapshot_batch(), train=False
+        )

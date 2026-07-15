@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import hashlib
 import importlib
 import json
 import math
@@ -316,19 +317,30 @@ def _infer_job_type(run_name: str | None) -> str:
 
 
 def collect_git_info(cwd: str | Path = ".") -> dict[str, Any]:
-    def _run(args: list[str]) -> str | None:
+    def _run_bytes(args: list[str]) -> bytes | None:
         try:
-            result = subprocess.run(args, cwd=cwd, check=True, capture_output=True, text=True)
+            result = subprocess.run(args, cwd=cwd, check=True, capture_output=True)
         except Exception:
             return None
-        return result.stdout.strip()
+        return result.stdout
+
+    def _run(args: list[str]) -> str | None:
+        output = _run_bytes(args)
+        return output.decode("utf-8", errors="surrogateescape").strip() if output is not None else None
 
     commit = _run(["git", "rev-parse", "HEAD"])
     status = _run(["git", "status", "--porcelain"])
+    tracked_diff = _run_bytes(["git", "diff", "--binary", "HEAD", "--"])
+    untracked = _run(["git", "ls-files", "--others", "--exclude-standard"])
+    untracked_paths = untracked.splitlines() if untracked else []
     return {
         "commit": commit,
         "dirty": bool(status) if status is not None else None,
         "git_available": commit is not None,
+        "tracked_diff_sha256": hashlib.sha256(tracked_diff).hexdigest() if tracked_diff is not None else None,
+        "has_untracked_paths": bool(untracked_paths) if untracked is not None else None,
+        "untracked_path_count": len(untracked_paths) if untracked is not None else None,
+        "untracked_paths": untracked_paths if untracked is not None else None,
     }
 
 

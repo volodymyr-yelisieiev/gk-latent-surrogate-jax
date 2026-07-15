@@ -97,6 +97,10 @@ def test_sequence_models_reject_bad_shapes_and_config_mismatches():
         CausalTransformerSequenceModel(latent_dim=6, context_length=4, mlp_ratio=0).init(
             jax.random.PRNGKey(0), z, train=False
         )
+    with pytest.raises(ValueError, match="at least one MLP feature"):
+        CausalTransformerSequenceModel(latent_dim=6, context_length=4, embed_dim=8, mlp_ratio=0.01).init(
+            jax.random.PRNGKey(0), z, train=False
+        )
     with pytest.raises(ValueError, match="context_length"):
         GuppyLatentTransformer(latent_dim=6, context_length=3).init(jax.random.PRNGKey(0), z, train=False)
     with pytest.raises(ValueError, match="model_dim"):
@@ -117,6 +121,10 @@ def test_sequence_models_reject_bad_shapes_and_config_mismatches():
         )
     with pytest.raises(ValueError, match="mlp_ratio"):
         GuppyLatentTransformer(latent_dim=6, context_length=4, mlp_ratio=0).init(
+            jax.random.PRNGKey(0), z, train=False
+        )
+    with pytest.raises(ValueError, match="at least one MLP feature"):
+        GuppyLatentTransformer(latent_dim=6, context_length=4, model_dim=8, mlp_ratio=0.01).init(
             jax.random.PRNGKey(0), z, train=False
         )
 

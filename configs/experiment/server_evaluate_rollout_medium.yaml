@@ -12,7 +12,7 @@ data:
   batch_size: 16
   shuffle: false
   num_workers: 0
-  seed: 53
+  seed: 52
   normalization:
     mode: none
     mean: null

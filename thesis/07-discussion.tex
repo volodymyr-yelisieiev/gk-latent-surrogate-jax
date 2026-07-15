@@ -1,0 +1,111 @@
+\cleardoubleoddpage
+\chapter{Discussion}
+\label{chap:discussion}
+
+\section{Answer to the Research Question}
+
+The corrected experiments support a bounded positive answer to the primary empirical question.
+The cache-normalized Transformer is the best learned model on validation flux RMSE and, on the
+locked test, lowers flux RMSE from 11.9889 for persistence to 11.4255. Learned latent dynamics
+therefore improve the predeclared primary point estimate by 4.70\% under the examined seed-52,
+eight-step protocol. The paired five-trajectory interval includes zero, so the result is not a
+claim of statistical significance or broad superiority.
+
+This result does not make the implementation uninformative. It establishes that the complete data,
+representation, cache, sequence, diagnostic, and provenance path can be executed with a strict
+trajectory-level split and locked evaluation. It also shows that a strong persistence reference is
+essential for slowly changing latent states: low training loss or a complex temporal architecture
+does not by itself demonstrate useful forecasting. The scientifically relevant conclusion is that
+the present encoder and training budget produce a modest held-out improvement under one fixed
+protocol, with insufficient independent replication for a broader claim.
+
+\section{Interpretation of the Test Difference}
+
+The Transformer and persistence flux RMSE values differ by 0.5634, or 4.70\% of the persistence
+value. Three of five trajectory-level RMSE values favour the Transformer; their paired mean
+difference is $-0.8279$, with a descriptive 95\% interval from $-2.2249$ to $0.5692$. The current
+design has only one sequence-training seed and five independent test trajectories, so the interval
+is reported to expose uncertainty rather than to claim significance or equivalence.
+
+The Transformer alters the error distribution: both aggregate MAE and RMSE are lower, although two
+trajectory-level RMSE differences are non-improvements. Similarly,
+the modest reduction in spectra relative $L_2$ occurs without a meaningful change in aggregate
+shape correlation. These disagreements justify the metric hierarchy: flux RMSE remains the primary
+answer, while MAE, relative error, spectra diagnostics, and latent error explain how the answer was
+obtained.
+
+The learned model also has lower latent MSE than persistence on the locked test. Because diagnostic
+heads are nonlinear and task-specific, latent and flux rankings need not match exactly, but they
+agree here. Cache normalization improved both learned architectures on validation, suggesting that
+coordinate scale matters; a multi-seed study is needed to determine whether that effect is robust.
+
+\section{Importance of the Integrity Audit}
+
+The most consequential finding was methodological rather than architectural. Different trajectory
+split seeds had previously been used for encoder training and downstream evaluation. A trajectory
+can then be called ``test'' downstream even though its snapshots were used to train the encoder,
+which violates end-to-end held-out evaluation. The resulting metric may still measure sequence-model
+behaviour on a fixed cache, but it cannot support a claim about generalization of the complete
+surrogate.
+
+Withdrawing the earlier result is necessary scientific hygiene. The corrected system now binds
+every cache and checkpoint to its split seed, records exact trajectory manifests, fits normalization
+statistics on training trajectories only, and rejects incompatible artifacts before evaluation.
+These controls are more valuable than retaining a numerically stronger but invalid headline. They
+also make future negative or positive results easier to audit.
+
+\section{Comparison with Related Work}
+
+GyroSwin predicts full five-dimensional dynamics and targets physically motivated field validation
+at a larger architectural scale \citep{paischer2025gyroswin}. The present system instead evaluates a
+128-dimensional diagnostic-oriented state without a decoder. The two approaches therefore answer
+different questions: field fidelity versus compact diagnostic prediction.
+
+A direct accuracy comparison remains invalid without the same data revision, trajectory split,
+temporal sampling, target definitions, normalization, forecast horizon, and aggregation. The
+internal result does not imply that latent surrogates in general are superior to full-field
+models, nor does it provide evidence about GyroSwin performance. It only constrains the specific
+encoder, learned sequence candidates, data subset, and budget evaluated here.
+
+\section{Limitations}
+
+The study has several limitations:
+
+\begin{itemize}
+  \item The medium cache contains 51 trajectories from one preprocessing pipeline. Five validation
+        and five test trajectories provide limited independent coverage of the underlying regime.
+  \item Each learned candidate is trained once, and the GRU and Transformer use different fixed
+        training seeds. Multiple matched seeds are required to separate architecture from
+        initialization variability and assess repeatability.
+  \item The eight-step horizon establishes short-term behaviour only. It does not demonstrate
+        long-term stability or error saturation.
+  \item The pointwise encoder uses aggressive subsampling and global pooling. It may discard spatial
+        relationships that a temporal model would need to beat persistence.
+  \item Diagnostic heads evaluate selected scalar and spectral targets. They cannot establish that
+        the latent state retains all physically relevant degrees of freedom.
+  \item Relative spectral errors are large and sensitive to small target norms. Their aggregate
+        values combine two spectra with different scales and must be interpreted per target.
+  \item The corrected run retrains the seed-52 encoder, cache, and sequence checkpoints from
+        recorded source commits. Raw data and large artifacts are not distributed in Git, so exact
+        reproduction requires authorized dataset access.
+  \item Runtime speedup over the original gyrokinetic solver is not measured end to end and is not
+        claimed.
+\end{itemize}
+
+\section{Future Work}
+
+The first priority is a multi-seed replication of the locked validation-to-test protocol. Model
+selection should remain confined to validation, with a single final test opening after architecture,
+normalization, and training budget are fixed. Confidence intervals should be based on independent
+trajectories and training seeds rather than overlapping windows alone.
+
+Architecturally, the encoder deserves more attention than a wider sequence sweep. Structured
+five-dimensional patch mixing or less aggressive subsampling may retain temporal cues that the
+pointwise hierarchy loses. Diagnostic objectives should normalize spectra per target so that one
+scale cannot dominate the encoder loss. Longer contexts and horizons are appropriate only after a
+learned model reliably exceeds persistence across seeds in the short-horizon setting.
+
+If a complete GyroSwin checkpoint and evaluation bundle becomes available, a matched benchmark can
+be designed after reproducing its native protocol. A decoder could separately test full-field
+information retention, but that would extend the research question rather than repair the present
+diagnostic-surrogate experiment.

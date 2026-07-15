@@ -1,0 +1,94 @@
+\cleardoubleoddpage
+\chapter{Introduction}
+\label{chap:introduction}
+
+\section{Motivation}
+
+Magnetically confined fusion plasmas exhibit turbulence that transports heat and particles
+across magnetic surfaces. Predicting this transport is important for understanding confinement,
+but the nonlinear gyrokinetic equations evolve a five-dimensional distribution function and are
+expensive to solve at high fidelity. The dimensionality is not incidental: it preserves kinetic
+effects that reduced transport models may omit \citep{abel2013multiscale,paischer2025gyroswin}.
+
+Machine-learning surrogates offer a complementary approximation path. A full-field surrogate can
+directly predict the next high-dimensional state, but doing so requires a model and loss over every
+field value. This thesis studies a narrower question: can the state first be compressed into a
+small vector whose dynamics are easier to learn, while diagnostic heads preserve information about
+quantities of physical interest? The proposed pipeline therefore separates spatial representation
+learning from temporal prediction. It maps each five-dimensional snapshot $x_t$ to a latent vector
+$z_t$, evolves $z_t$ autoregressively, and evaluates the rollout both in latent space and through
+diagnostic predictions of flux and spectra.
+
+This separation has three practical attractions. First, sequence models operate on vectors rather
+than the full spatial grid. Second, diagnostic errors can be evaluated without claiming that a
+latent vector reconstructs the complete distribution function. Third, simple temporal baselines
+can be compared under an identical cached representation. The trade-off is equally important: the
+surrogate is useful only for the diagnostic quantities explicitly retained by the representation,
+and it cannot be interpreted as a full simulation replacement.
+
+\section{Research Question}
+
+The central research question is:
+
+\begin{quote}
+Can a compact JAX/Flax latent surrogate learn short-horizon gyrokinetic dynamics from
+preprocessed five-dimensional field snapshots, and do latent sequence models improve
+flux-predictive rollouts over a persistence baseline on held-out trajectories?
+\end{quote}
+
+The question is operationalized through three sub-questions:
+
+\begin{enumerate}[label=RQ\arabic*]
+  \item Does the encoder retain flux-relevant information in a 128-dimensional latent space?
+  \item Which of persistence, a gated recurrent unit (GRU), and a causal Transformer produces the
+        best eight-step latent rollout under a common test protocol?
+  \item Does cache normalization materially change the ranking of the learned sequence models?
+\end{enumerate}
+
+Flux RMSE is the primary model-selection metric. Latent mean squared error (MSE), spectra errors,
+and finite-output stability are secondary diagnostics. This priority follows the scientific goal:
+a numerically small latent error is not sufficient if it fails to preserve transport information.
+
+\section{Contributions}
+
+This thesis makes the following contributions:
+
+\begin{itemize}
+  \item a portable JAX/Flax implementation of a complete latent-surrogate workflow, including
+        synthetic fixtures and a real Cyclone/KvikIO data adapter;
+  \item an explicit channel-first tensor contract for five spatial dimensions and deterministic
+        trajectory-level train, validation, and test splits;
+  \item a representation objective combining SimSiam-style invariance with supervised flux and
+        spectra heads;
+  \item latent caching and comparable persistence, GRU, MLP-delta, and causal Transformer dynamics;
+  \item trajectory-balanced rollout evaluation with latent, flux, spectra, and stability metrics;
+  \item a leakage-resistant medium-scale comparison with validation-only model selection and a
+        locked test, showing a bounded 4.70\% flux-RMSE point-estimate improvement for the selected
+        Transformer over persistence; and
+  \item a reproducibility-oriented command-line interface, configuration system, test suite, and
+        provenance ledger that separates engineering smoke tests from scientific evidence.
+\end{itemize}
+
+\section{Scope and Claim Boundaries}
+
+The work predicts latent vectors and diagnostics; it does not reconstruct the complete
+five-dimensional state. The medium experiment covers 51 trajectories from one preprocessed data
+source, split at trajectory level into 41 training, five validation, and five test trajectories
+with one canonical seed. Generalization to other regimes, machines, preprocessing choices, or
+substantially longer horizons is not established.
+
+GyroSwin is discussed as related work because it targets scalable full-field five-dimensional
+surrogacy \citep{paischer2025gyroswin}. A direct numeric comparison is intentionally omitted. Such
+a comparison would require the same dataset version, trajectory split, temporal sampling,
+forecast horizon, target definition, normalization, and metric implementation. Those matching
+materials were unavailable for the present experiment.
+
+\section{Thesis Structure}
+
+\autoref{chap:background} introduces gyrokinetic turbulence, representation learning, and latent
+sequence models. \autoref{chap:method} defines the data contract, objectives, architectures, and
+evaluation protocol. \autoref{chap:implementation} describes the software system and portability
+decisions. \autoref{chap:experiments} specifies the datasets and experiments. Results are reported in
+\autoref{chap:results}, interpreted in \autoref{chap:discussion}, and summarized in
+\autoref{chap:conclusion}. The required story summary and reproducibility details are provided in the
+appendices.

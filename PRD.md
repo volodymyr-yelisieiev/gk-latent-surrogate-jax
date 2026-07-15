@@ -1,14 +1,14 @@
 # PRD / Technical Specification: JAX Latent Time-Series Surrogate for 5D Gyrokinetic Plasma Turbulence
 
-**Document status:** Historical project brief and scope reference
+**Document status:** Scientific and technical scope reference
 **Target repository:** `gk-latent-surrogate-jax`
 **Target package:** `gk_surrogate`
 **Primary language:** Python 3.11+
 **Primary ML stack:** JAX, Flax, Optax
-**Original working mode:** Server GPU thesis workflow with portable local fallback checks
-**Source of truth:** Supervisor's latest initial document, not the older chat message and not the previous practical-work repository
+**Execution mode:** Server GPU thesis workflow with portable local fallback checks
+**Source of truth:** This specification defines the original scientific and technical scope
 
-> Status note, 2026-06-27: this PRD records the initial thesis scope and constraints.
+> Status note: this PRD records the initial thesis scope and constraints.
 > Current behavior is defined by the local code, configs, tests, and the lean operational
 > docs under `docs/`.
 
@@ -22,12 +22,12 @@ The implementation targets the server GPU thesis workflow while keeping a portab
 fallback path for validation. The repository must be designed so that the same codebase
 can run on:
 
-- student SSH server with existing 5D dataset and 4x GTX 1080 Ti for dataset inspection,
+- shared compute server with the existing 5D dataset and 4x GTX 1080 Ti for dataset inspection,
   preprocessing, and training;
 - PC with RTX 5070 under WSL2 for optional local GPU training;
 - MacBook or CI fallback runner for development, tests, and tiny smoke runs.
 
-The main project direction is the one described in the supervisor's document:
+The project direction defined by this specification is:
 
 ```text
 5D time-slice x_t
@@ -116,18 +116,18 @@ The initial repository implementation must **not** attempt to solve these items 
 
 - no hard dependency on PC, server, CUDA version, or GPU model;
 - no required multi-GPU JAX implementation in v0;
-- no immediate full 5D reconstruction objective, because the supervisor document explicitly says the goal is to avoid 5D reconstruction;
+- no immediate full 5D reconstruction objective, because the scientific goal is to avoid 5D reconstruction;
 - no full GyroSwin reimplementation;
 - no mandatory GPT-2 fine-tuning in the first implementation;
 - no mandatory use of the old NDSwin-JAX repo;
 - no mandatory local generation of the full dataset before the codebase exists;
-- no assumption about real dataset schema until the supervisor provides exact paths and shapes.
+- no assumption about real dataset schema until exact paths and shapes are verified.
 
 ### 1.4 Key thesis deliverables represented in code
 
-The repository must make the supervisor document deliverables concrete:
+The repository must make the project deliverables concrete:
 
-| Supervisor deliverable | Repository implementation |
+| Project deliverable | Repository implementation |
 |---|---|
 | Embedding model / SimSiam / contrastive encoder | `gk_surrogate.models.encoders`, `gk_surrogate.models.simsiam`, `gk_surrogate.training.train_encoder` |
 | Dataset embedding into latent space | `gk_surrogate.training.embed_dataset`, latent cache format |
@@ -154,7 +154,7 @@ Rules:
 - no hardcoded CUDA wheel, GPU count, `pjit`, or device count assumptions in core modules;
 - no hardcoded absolute dataset paths;
 - all path and hardware behavior must come from config or CLI overrides;
-- portable smoke tests must pass in CI and locally on MacBook;
+- portable smoke tests must pass in CI and on a local CPU workstation;
 - GPU-specific environment setup must live in documentation and optional environment files, not core code;
 - server experiment configs should use automatic parallel mode unless a constrained
   fallback run is explicitly documented.
@@ -1458,7 +1458,7 @@ GPT-2 fine-tuning is not required in v0. Add only an interface placeholder:
 sequence.type = gpt2_adapter
 ```
 
-with `NotImplementedError` until supervisor explicitly requests it.
+with `NotImplementedError` until the project scope explicitly requires it.
 
 ### 7.7 Rollout function
 
@@ -1655,7 +1655,7 @@ stability flag: finite outputs for all rollout steps
 mean and std over trajectories
 ```
 
-For GyroSwin comparison, exact metric definitions should remain configurable until supervisor confirms final comparison protocol.
+For GyroSwin comparison, exact metric definitions should remain configurable until the final comparison protocol is established.
 
 ### 9.4 Metrics aggregation
 
@@ -2176,7 +2176,7 @@ No GPU CI required.
 README must include:
 
 - project summary;
-- relation to supervisor document;
+- relation to the scientific project specification;
 - installation for Mac CPU dev;
 - how to run synthetic smoke pipeline;
 - repository structure;
@@ -2215,7 +2215,7 @@ Must describe:
 
 - portable fallback development profile;
 - PC WSL2 GPU profile template;
-- student server profile template;
+- shared-server profile template;
 - how to benchmark step time;
 - how to choose final hardware based on evidence.
 
@@ -2236,7 +2236,7 @@ compare metrics
 
 ### 14.6 docs/metrics.md
 
-Must define all metrics implemented and how they map to supervisor deliverables.
+Must define all implemented metrics and how they map to project deliverables.
 
 ### 14.7 Lean operational docs
 
@@ -2248,7 +2248,7 @@ The current repository keeps operational docs rather than draft thesis prose:
 - `docs/verification_matrix.md` records the local and CI gates for code, config, data,
   training, evaluation, packaging, and agent-readiness changes.
 
-Open supervisor questions inherited from the initial brief include:
+Open scientific and protocol questions include:
 
 - Are 1D spectra stored in the dataset or must they be computed?
 - Which spectra are required: `ky`, `Q`, both, or others?
@@ -2263,7 +2263,7 @@ Open supervisor questions inherited from the initial brief include:
 
 ## 15. Implementation milestones
 
-### Milestone 0 - Repository bootstrap
+### Repository bootstrap
 
 Deliverables:
 
@@ -2286,7 +2286,7 @@ make test-fast
 
 passes on a portable fallback runner without GPU hardware.
 
-### Milestone 1 - Synthetic data and HDF5 fixture layer
+### Synthetic data and HDF5 fixture layer
 
 Deliverables:
 
@@ -2305,7 +2305,7 @@ gks make-synthetic-h5 --config configs/data/tiny_dummy.yaml --output-dir /tmp/gk
 
 works, and data tests pass.
 
-### Milestone 2 - Encoder and diagnostic heads
+### Encoder and diagnostic heads
 
 Deliverables:
 
@@ -2324,7 +2324,7 @@ gks train-encoder --config configs/experiment/smoke_encoder_supervised.yaml
 
 runs for a few steps on CPU and decreases or at least reports finite loss.
 
-### Milestone 3 - SimSiam representation learning
+### SimSiam representation learning
 
 Deliverables:
 
@@ -2342,7 +2342,7 @@ gks train-encoder --config configs/experiment/smoke_encoder_simsiam.yaml
 
 runs on CPU, returns finite SimSiam and diagnostic metrics.
 
-### Milestone 4 - Latent cache
+### Latent cache
 
 Deliverables:
 
@@ -2359,7 +2359,7 @@ gks embed-dataset --config configs/experiment/smoke_embed_dataset.yaml
 
 produces `latent_cache.h5` with correct shape.
 
-### Milestone 5 - Sequence models and rollout
+### Sequence models and rollout
 
 Deliverables:
 
@@ -2379,7 +2379,7 @@ gks evaluate-rollout --config configs/experiment/smoke_evaluate_rollout.yaml
 
 works on synthetic latent cache.
 
-### Milestone 6 - Full smoke pipeline
+### Full smoke pipeline
 
 Deliverables:
 
@@ -2398,14 +2398,14 @@ make smoke-all
 
 passes on a portable fallback runner without real data or GPU hardware.
 
-### Milestone 7 - Real dataset readiness
+### Real dataset readiness
 
 Deliverables:
 
 - `student_server_template.yaml` prepared;
 - `local_pc_template.yaml` prepared;
 - inspect tool ready;
-- supervisor questions doc ready;
+- open scientific and protocol questions documented;
 - benchmark tool ready.
 
 Acceptance:
@@ -2416,7 +2416,7 @@ Once dataset path is known, only config/schema edits should be required before f
 
 ## 16. Real dataset integration plan
 
-When the supervisor provides server dataset details, execute:
+When server dataset details are available and verified, execute:
 
 ### Step 1 - Inspect raw file structure
 
@@ -2501,10 +2501,10 @@ stability over 100-1000 steps
 Do not encode this as a requirement, but the likely decision path is:
 
 ```text
-Develop on MacBook
-Inspect data on server
-Train initial real models on PC RTX 5070 if dataset can be copied or generated locally
-Use server for data archive, preprocessing, backup runs, and possibly parallel sweeps
+Develop on a portable local workstation
+Inspect data on the shared server
+Train initial real models on a compatible local GPU if data access permits
+Use the shared server for the data archive, preprocessing, repeat runs, and optional parallel sweeps
 ```
 
 ### 17.3 Server multi-GPU caution
@@ -2740,11 +2740,11 @@ passes on a portable fallback runner without GPU hardware.
 
 ---
 
-## 21. Initial implementation order for a coding session
+## 21. Dependency-ordered implementation sequence
 
 Use this exact order to avoid getting blocked.
 
-### Phase 1 - Skeleton
+### Repository structure and configuration
 
 1. Create repo.
 2. Add `pyproject.toml`, `Makefile`, `.gitignore`.
@@ -2752,7 +2752,7 @@ Use this exact order to avoid getting blocked.
 4. Add config schema and loader.
 5. Add first tests for config and import.
 
-### Phase 2 - Data
+### Data layer
 
 1. Implement data types.
 2. Implement synthetic dataset.
@@ -2762,7 +2762,7 @@ Use this exact order to avoid getting blocked.
 6. Implement inspect command.
 7. Add tests.
 
-### Phase 3 - Models
+### Model layer
 
 1. Implement FlattenMLPEncoder.
 2. Implement DiagnosticHeads.
@@ -2771,7 +2771,7 @@ Use this exact order to avoid getting blocked.
 5. Add PatchTransformerEncoder.
 6. Add tests.
 
-### Phase 4 - SimSiam
+### SimSiam representation learning
 
 1. Implement augmentations.
 2. Implement projection/prediction heads.
@@ -2779,7 +2779,7 @@ Use this exact order to avoid getting blocked.
 4. Implement SimSiam train mode.
 5. Add tests.
 
-### Phase 5 - Latent cache and sequence
+### Latent cache and sequence modeling
 
 1. Implement latent cache.
 2. Implement embed dataset command.
@@ -2789,7 +2789,7 @@ Use this exact order to avoid getting blocked.
 6. Implement rollout evaluation.
 7. Add tests.
 
-### Phase 6 - Polish
+### Integration and verification
 
 1. Add docs.
 2. Add full smoke pipeline.

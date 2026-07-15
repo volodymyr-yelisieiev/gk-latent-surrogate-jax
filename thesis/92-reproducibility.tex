@@ -1,0 +1,123 @@
+\cleardoubleoddpage
+\chapter{Reproducibility and Artifact Manifest}
+\label{app:reproducibility}
+
+\section{Repository}
+
+The implementation repository is available at
+\url{https://github.com/volodymyr-yelisieiev/gk-latent-surrogate-jax}. The corrected review snapshot
+uses the following source commits:
+\begin{itemize}
+  \item training: \texttt{f97a0257d7627c8ff896}\newline
+        \texttt{0433aed30c750a9f90d5};
+  \item test evaluation: \texttt{280540f54e67c0dbcae2}\newline
+        \texttt{53327596bfaf7cbf9307}.
+\end{itemize}
+Both are distributed in the repository bundle accompanying the review package. Final test metadata records the SHA-256 of
+an empty tracked diff; its dirty flag refers only to the separately packaged untracked thesis tree.
+The package supports Python
+3.11 and newer, with Python 3.12 preferred.
+
+\section{Portable Verification}
+
+The following commands verify static checks, unit tests, the CPU synthetic pipeline, and package
+construction:
+
+\begin{lstlisting}[language=bash,basicstyle=\ttfamily\small,breaklines=true]
+make install-dev
+make check
+make smoke-all
+uv build
+\end{lstlisting}
+
+The smoke outputs are engineering fixtures and must not be interpreted as thesis-scale results.
+
+\section{Principal Experiment Commands}
+
+With the dataset root exported as \code{GK\_CYCLONE\_DATA\_ROOT}, the selected pipeline is:
+
+\begin{lstlisting}[language=bash,basicstyle=\ttfamily\small,breaklines=true]
+gks train-encoder \
+  --config configs/experiment/server_encoder_simsiam_medium.yaml \
+  --output-dir outputs/medium_seed52_reproduction/encoder
+gks embed-dataset \
+  --config configs/experiment/server_embed_dataset_medium.yaml \
+  --override latent_cache.path=outputs/medium_seed52_reproduction/embed/latent_cache.h5 \
+  --override latent_cache.encoder_checkpoint_path=outputs/medium_seed52_reproduction/encoder/checkpoints/step_000500 \
+  --output-dir outputs/medium_seed52_reproduction/embed
+gks train-sequence \
+  --config configs/experiment/server_sequence_transformer_medium.yaml \
+  --override latent_cache.path=outputs/medium_seed52_reproduction/embed/latent_cache.h5 \
+  --override latent_cache.encoder_checkpoint_path=outputs/medium_seed52_reproduction/encoder/checkpoints/step_000500 \
+  --override latent_cache.latent_normalization=cache \
+  --output-dir outputs/medium_seed52_reproduction/sequence_transformer_cache_normalized
+gks evaluate-rollout \
+  --config configs/experiment/server_sequence_transformer_medium.yaml \
+  --override training.max_steps=0 \
+  --override data.split=val \
+  --override latent_cache.path=outputs/medium_seed52_reproduction/embed/latent_cache.h5 \
+  --override latent_cache.encoder_checkpoint_path=outputs/medium_seed52_reproduction/encoder/checkpoints/step_000500 \
+  --override latent_cache.latent_normalization=cache \
+  --override latent_cache.sequence_checkpoint_path=outputs/medium_seed52_reproduction/sequence_transformer_cache_normalized/checkpoints/step_000500 \
+  --output-dir outputs/medium_seed52_reproduction/validation_transformer_cache_normalized
+\end{lstlisting}
+
+The same validation command is run for all learned candidates and persistence. After selecting the
+cache-normalized Transformer by validation flux RMSE, only that checkpoint and persistence are
+evaluated with \code{data.split=test}. The retained resolved configs are authoritative
+for the exact arguments; the compact commands above communicate the pipeline rather than replacing
+those records.
+
+\section{Selected Artifact Provenance}
+
+\begin{table}[htbp]
+  \centering
+  \caption{Selected main-result artifacts. Paths are relative to the repository and intentionally
+  ignored by Git.}
+  \label{tab:artifact-manifest}
+  \begin{tabularx}{\textwidth}{lX}
+    \toprule
+    Role & Artifact \\
+    \midrule
+    Encoder & \path{outputs/medium_seed52_reproduction/encoder/checkpoints/step_000500} \\
+    Latent cache & \path{outputs/medium_seed52_reproduction/embed/latent_cache.h5} \\
+    Sequence model & \path{outputs/medium_seed52_reproduction/sequence_transformer_cache_normalized/checkpoints/step_000500} \\
+    Selected test metrics & \path{outputs/medium_seed52_reproduction/test_transformer_cache_normalized_locked/metrics.json} \\
+    Baseline test metrics & \path{outputs/medium_seed52_reproduction/test_persistence_locked/metrics.json} \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+The recorded SHA-256 values are:
+
+\begin{itemize}
+  \item latent cache: \texttt{b0c4a7c6922a5d3fcdb4b0f2ded867e4}\newline
+        \texttt{d1e75a5e0b00657fb8bed44afb81d2f7};
+  \item sequence checkpoint: \texttt{e9970ac7a4f87c345639d911457716cd}\newline
+        \texttt{797fc5c5d0c0a800d868552dc989cb90};
+  \item encoder checkpoint: \texttt{f81ba6fba7eadb044cc7810159b7e0ba}\newline
+        \texttt{bd5368c1de3a9924afe34518fa8b0c3c};
+  \item selected test metrics: \texttt{e62585a71878a7593e6b3cc0e4765ed}\newline
+        \texttt{8fd99d9d45de0eb1dd6915da941afe195};
+  \item persistence test metrics: \texttt{17ea4803b954824671ea8ddaf4aad27f}\newline
+        \texttt{580123c4285b34361891f90c8a9988d4}.
+\end{itemize}
+
+\section{External Experiment Records}
+
+The clean evidence is mirrored in W\&B as three concise records: the complete
+\href{https://wandb.ai/v-yelisieiev-johannes-kepler-universit-t-linz/gk-latent-surrogate/runs/m52rval1}{validation comparison (m52rval1)},
+the locked
+\href{https://wandb.ai/v-yelisieiev-johannes-kepler-universit-t-linz/gk-latent-surrogate/runs/m52rper1}{persistence test (m52rper1)},
+and the locked
+\href{https://wandb.ai/v-yelisieiev-johannes-kepler-universit-t-linz/gk-latent-surrogate/runs/m52rtrn1}{selected-Transformer test (m52rtrn1)}.
+Each record names the evidence role, split seed, trajectory-manifest hash, aggregation, resolved
+configuration, and local artifact hashes. Historical mixed-seed records remain labelled as
+invalidated audit evidence and are not used for a thesis claim.
+
+\section{Availability Boundaries}
+
+Raw data and checkpoints are not distributed in the Git repository. Reproduction of the exact
+medium experiment therefore requires authorized access to the preprocessed Cyclone/KvikIO dataset
+and the retained ignored artifacts or retraining them from the documented configs. The synthetic
+pipeline remains fully available from a clean checkout.

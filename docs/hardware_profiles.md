@@ -15,7 +15,7 @@ Profiles:
 
 - MacBook CPU: local tests, dry-runs, tiny synthetic data.
 - RTX 5070 under WSL2: optional local GPU training after JAX wheel compatibility is known.
-- Student SSH server: Cyclone/KvikIO inspection, tiny real smoke, optional AE probing,
+- Shared Cyclone server: Cyclone/KvikIO inspection, tiny real smoke, optional AE probing,
   measured server benchmarks, and opt-in data-parallel training.
 
 ## Hardware Decision Protocol
@@ -37,7 +37,7 @@ summary only after the measurement is repeatable with a committed config.
 For PC or server GPU runs, install the matching JAX wheel outside `pyproject.toml`, remove
 the CPU override only for that benchmark shell, and record:
 
-- machine profile: MacBook CPU, RTX 5070 WSL2, or student server GTX 1080 Ti;
+- machine profile: MacBook CPU, RTX 5070 WSL2, or shared Cyclone server GTX 1080 Ti;
 - backend and devices printed by the benchmark;
 - config file, overrides, batch size, and measured steps;
 - first-step compile time and mean/min/max measured step time;

@@ -94,11 +94,9 @@ def _pearson(pred: Array, target: Array, eps: float = 1e-8) -> Array:
     pred_centered = pred - jnp.mean(pred, axis=-1, keepdims=True)
     target_centered = target - jnp.mean(target, axis=-1, keepdims=True)
     numerator = jnp.sum(pred_centered * target_centered, axis=-1)
-    denominator = (
-        jnp.sqrt(jnp.sum(pred_centered**2, axis=-1))
-        * jnp.sqrt(jnp.sum(target_centered**2, axis=-1))
-        + eps
-    )
+    pred_norm = jnp.sqrt(jnp.sum(pred_centered**2, axis=-1) + eps**2)
+    target_norm = jnp.sqrt(jnp.sum(target_centered**2, axis=-1) + eps**2)
+    denominator = pred_norm * target_norm
     return jnp.mean(numerator / denominator)
 
 

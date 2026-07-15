@@ -2,14 +2,18 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 from collections.abc import Iterator, Mapping
 from pathlib import Path
 from time import perf_counter
 from typing import Any
 
+import h5py
 import jax
 import jax.numpy as jnp
 import numpy as np
+import yaml
 
 from gk_surrogate.config.load import config_to_yaml
 from gk_surrogate.config.schema import ExperimentConfig
@@ -50,6 +54,8 @@ from gk_surrogate.training.state import TrainState
 from gk_surrogate.training.train_encoder import train_encoder_step
 from gk_surrogate.training.train_sequence import train_sequence_step
 from gk_surrogate.utils.paths import ensure_dir
+
+_PROTOCOL_VERSION = 1
 
 
 def _output_dir(config: ExperimentConfig) -> Path:
@@ -127,13 +133,333 @@ def _system_metrics(plan: ParallelPlan) -> dict[str, Any]:
     }
 
 
+def _trajectory_manifest_sha256(trajectory_ids: tuple[str, ...]) -> str:
+    """Return a stable identity for an ordered trajectory selection."""
+
+    payload = json.dumps(list(trajectory_ids), ensure_ascii=True, separators=(",", ":"))
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _protocol_fields(
+    config: ExperimentConfig,
+    trajectory_ids: tuple[str, ...],
+    *,
+    aggregation: str,
+    universe_trajectory_ids: tuple[str, ...] | None = None,
+) -> dict[str, Any]:
+    universe_ids = trajectory_ids if universe_trajectory_ids is None else universe_trajectory_ids
+    return {
+        "protocol_version": _PROTOCOL_VERSION,
+        "data_backend": config.data.backend,
+        "data_split": config.data.split,
+        "data_split_seed": config.data.seed,
+        "training_seed": config.training.seed,
+        "selected_trajectory_ids": list(trajectory_ids),
+        "num_selected_trajectories": len(trajectory_ids),
+        "trajectory_manifest_sha256": _trajectory_manifest_sha256(trajectory_ids),
+        "universe_trajectory_ids": list(universe_ids),
+        "num_universe_trajectories": len(universe_ids),
+        "universe_manifest_sha256": _trajectory_manifest_sha256(universe_ids),
+        "aggregation": aggregation,
+    }
+
+
+def _metadata_data_seed(payload: Mapping[str, Any] | None) -> int | None:
+    if not isinstance(payload, Mapping):
+        return None
+    data = payload.get("data")
+    if not isinstance(data, Mapping) or "seed" not in data:
+        return None
+    return int(data["seed"])
+
+
+def _checkpoint_run_config(path: str | Path) -> Mapping[str, Any] | None:
+    candidate = Path(path)
+    search_root = candidate.parent if candidate.is_file() else candidate
+    for depth, parent in enumerate((search_root, *search_root.parents)):
+        if depth > 3:
+            break
+        config_path = parent / "config_resolved.json"
+        if config_path.is_file():
+            with config_path.open(encoding="utf-8") as handle:
+                payload = json.load(handle)
+            return payload if isinstance(payload, Mapping) else None
+    return None
+
+
+def _checkpoint_run_artifacts(
+    path: str | Path,
+) -> tuple[Mapping[str, Any], Mapping[str, Any]] | None:
+    candidate = Path(path)
+    search_root = candidate.parent if candidate.is_file() else candidate
+    for depth, parent in enumerate((search_root, *search_root.parents)):
+        if depth > 3:
+            break
+        config_path = parent / "config_resolved.json"
+        metrics_path = parent / "metrics.json"
+        if config_path.is_file() and metrics_path.is_file():
+            with config_path.open(encoding="utf-8") as handle:
+                config_payload = json.load(handle)
+            with metrics_path.open(encoding="utf-8") as handle:
+                metrics_payload = json.load(handle)
+            if isinstance(config_payload, Mapping) and isinstance(metrics_payload, Mapping):
+                return config_payload, metrics_payload
+    return None
+
+
+def _validate_checkpoint_split_seed(
+    checkpoint_path: str | Path,
+    *,
+    expected_seed: int,
+    role: str,
+) -> None:
+    config_payload = _checkpoint_run_config(checkpoint_path)
+    actual_seed = _metadata_data_seed(config_payload)
+    if actual_seed is not None and actual_seed != expected_seed:
+        raise ValueError(
+            f"{role} split seed {actual_seed} does not match configured data.seed {expected_seed}; "
+            "all stages in one scientific protocol must use the same trajectory split"
+        )
+
+
+def _protocol_tuple(payload: Mapping[str, Any], key: str) -> tuple[str, ...] | None:
+    value = payload.get(key)
+    if not isinstance(value, list | tuple) or any(not isinstance(item, str) for item in value):
+        return None
+    return tuple(value)
+
+
+def _validate_checkpoint_protocol(
+    checkpoint_path: str | Path,
+    *,
+    expected_seed: int,
+    expected_backend: str,
+    expected_universe_ids: tuple[str, ...],
+    expected_artifact_role: str,
+    role: str,
+    require_complete: bool,
+    expected_cache_path: str | Path | None = None,
+    expected_encoder_checkpoint: str | Path | None = None,
+) -> None:
+    """Validate a trained checkpoint against one complete trajectory protocol."""
+
+    artifacts = _checkpoint_run_artifacts(checkpoint_path)
+    if not require_complete:
+        _validate_checkpoint_split_seed(checkpoint_path, expected_seed=expected_seed, role=role)
+        return
+    if artifacts is None:
+        raise ValueError(f"{role} is missing colocated config_resolved.json and metrics.json protocol metadata")
+    config_payload, metrics = artifacts
+    data = config_payload.get("data")
+    training = config_payload.get("training")
+    if not isinstance(data, Mapping) or not isinstance(training, Mapping):
+        raise ValueError(f"{role} resolved config is missing data/training mappings")
+    actual_seed = _metadata_data_seed(config_payload)
+    if actual_seed != expected_seed:
+        raise ValueError(f"{role} split seed {actual_seed} does not match configured data.seed {expected_seed}")
+    if data.get("backend") != expected_backend:
+        raise ValueError(
+            f"{role} backend {data.get('backend')!r} does not match configured backend {expected_backend!r}"
+        )
+    if data.get("split") != "train":
+        raise ValueError(f"{role} must be trained with data.split='train', got {data.get('split')!r}")
+
+    required = {
+        "protocol_version",
+        "artifact_role",
+        "data_backend",
+        "data_split",
+        "data_split_seed",
+        "training_seed",
+        "selected_trajectory_ids",
+        "trajectory_manifest_sha256",
+        "universe_trajectory_ids",
+        "universe_manifest_sha256",
+        "checkpoint",
+    }
+    missing = sorted(required.difference(metrics))
+    if missing:
+        raise ValueError(f"{role} metrics are missing protocol fields: {', '.join(missing)}")
+    if metrics.get("protocol_version") != _PROTOCOL_VERSION:
+        raise ValueError(f"{role} has unsupported protocol version {metrics.get('protocol_version')!r}")
+    if metrics.get("artifact_role") != expected_artifact_role:
+        raise ValueError(
+            f"{role} artifact role {metrics.get('artifact_role')!r} does not match {expected_artifact_role!r}"
+        )
+    if metrics.get("data_backend") != expected_backend:
+        raise ValueError(f"{role} metrics backend does not match its resolved config")
+    if metrics.get("data_split") != "train" or metrics.get("data_split_seed") != expected_seed:
+        raise ValueError(f"{role} metrics do not record the required seed-{expected_seed} training split")
+    if metrics.get("training_seed") != training.get("seed"):
+        raise ValueError(f"{role} training seed differs between resolved config and metrics")
+
+    universe_ids = _protocol_tuple(metrics, "universe_trajectory_ids")
+    selected_ids = _protocol_tuple(metrics, "selected_trajectory_ids")
+    if universe_ids != expected_universe_ids:
+        raise ValueError(f"{role} trajectory universe does not match the consuming protocol")
+    if metrics.get("universe_manifest_sha256") != _trajectory_manifest_sha256(expected_universe_ids):
+        raise ValueError(f"{role} trajectory-universe manifest is invalid")
+    expected_train_ids = (
+        expected_universe_ids
+        if len(expected_universe_ids) < 2
+        else split_trajectory_ids(expected_universe_ids, seed=expected_seed)["train"]
+    )
+    if selected_ids != expected_train_ids:
+        raise ValueError(f"{role} selected trajectory IDs do not match the canonical training split")
+    if metrics.get("trajectory_manifest_sha256") != _trajectory_manifest_sha256(expected_train_ids):
+        raise ValueError(f"{role} training trajectory manifest is invalid")
+    if Path(str(metrics["checkpoint"])).resolve() != Path(checkpoint_path).resolve():
+        raise ValueError(f"{role} metrics checkpoint path does not identify the loaded checkpoint")
+    if expected_artifact_role == "sequence_checkpoint":
+        latent_cache_config = config_payload.get("latent_cache")
+        if not isinstance(latent_cache_config, Mapping):
+            raise ValueError(f"{role} resolved config is missing latent-cache lineage")
+        if expected_cache_path is None or expected_encoder_checkpoint is None:
+            raise ValueError(f"{role} validation requires cache and encoder lineage")
+        configured_cache = latent_cache_config.get("path")
+        configured_encoder = latent_cache_config.get("encoder_checkpoint_path")
+        if (
+            not configured_cache
+            or not configured_encoder
+            or Path(str(configured_cache)).resolve() != Path(expected_cache_path).resolve()
+            or Path(str(configured_encoder)).resolve() != Path(expected_encoder_checkpoint).resolve()
+        ):
+            raise ValueError(f"{role} resolved config does not match the loaded cache/encoder lineage")
+        if (
+            Path(str(metrics.get("latent_cache", ""))).resolve() != Path(expected_cache_path).resolve()
+            or Path(str(metrics.get("encoder_checkpoint", ""))).resolve()
+            != Path(expected_encoder_checkpoint).resolve()
+        ):
+            raise ValueError(f"{role} metrics do not match the loaded cache/encoder lineage")
+
+
+def _latent_cache_run_config(path: str | Path) -> Mapping[str, Any] | None:
+    with h5py.File(path, "r") as handle:
+        raw = handle["metadata"].attrs.get("config_yaml", "")
+    if isinstance(raw, bytes):
+        raw = raw.decode("utf-8")
+    if not raw:
+        return None
+    payload = yaml.safe_load(str(raw))
+    return payload if isinstance(payload, Mapping) else None
+
+
+def _latent_cache_protocol(path: str | Path) -> Mapping[str, Any] | None:
+    with h5py.File(path, "r") as handle:
+        raw = handle["metadata"].attrs.get("protocol_json", "")
+    if isinstance(raw, bytes):
+        raw = raw.decode("utf-8")
+    if not raw:
+        return None
+    payload = json.loads(str(raw))
+    return payload if isinstance(payload, Mapping) and payload else None
+
+
+def _validate_latent_cache_split_seed(path: str | Path, *, expected_seed: int) -> None:
+    cache_config = _latent_cache_run_config(path)
+    actual_seed = _metadata_data_seed(cache_config)
+    if actual_seed is not None and actual_seed != expected_seed:
+        raise ValueError(
+            f"latent cache split seed {actual_seed} does not match configured data.seed {expected_seed}; "
+            "rebuild or select a cache from the same trajectory-split protocol"
+        )
+    latent_cache = cache_config.get("latent_cache") if isinstance(cache_config, Mapping) else None
+    encoder_checkpoint = latent_cache.get("encoder_checkpoint_path") if isinstance(latent_cache, Mapping) else None
+    if encoder_checkpoint:
+        _validate_checkpoint_split_seed(
+            str(encoder_checkpoint),
+            expected_seed=expected_seed,
+            role="latent cache encoder checkpoint",
+        )
+
+
+def _validate_latent_cache_protocol(
+    path: str | Path,
+    *,
+    expected_seed: int,
+    expected_backend: str,
+    require_complete: bool,
+) -> tuple[str, ...]:
+    cache_config = _latent_cache_run_config(path)
+    protocol = _latent_cache_protocol(path)
+    cache = LatentCacheDataset(path)
+    actual_ids = tuple(cache.trajectory_ids())
+    if not require_complete:
+        _validate_latent_cache_split_seed(path, expected_seed=expected_seed)
+        return actual_ids
+    if cache_config is None or protocol is None:
+        raise ValueError("real-data latent cache is missing resolved config or protocol metadata; rebuild it")
+    data = cache_config.get("data")
+    if not isinstance(data, Mapping):
+        raise ValueError("real-data latent cache config is missing its data mapping")
+    if data.get("backend") != expected_backend or _metadata_data_seed(cache_config) != expected_seed:
+        raise ValueError("real-data latent cache backend/seed does not match the consuming protocol")
+    if data.get("split") != "all":
+        raise ValueError(f"real-data latent cache must be embedded with data.split='all', got {data.get('split')!r}")
+    required = {
+        "protocol_version",
+        "artifact_role",
+        "data_backend",
+        "data_split",
+        "data_split_seed",
+        "selected_trajectory_ids",
+        "trajectory_manifest_sha256",
+        "universe_trajectory_ids",
+        "universe_manifest_sha256",
+        "encoder_checkpoint",
+    }
+    missing = sorted(required.difference(protocol))
+    if missing:
+        raise ValueError(f"real-data latent cache protocol is missing fields: {', '.join(missing)}")
+    if protocol.get("protocol_version") != _PROTOCOL_VERSION or protocol.get("artifact_role") != "latent_cache":
+        raise ValueError("real-data latent cache has an unsupported protocol identity")
+    if (
+        protocol.get("data_backend") != expected_backend
+        or protocol.get("data_split") != "all"
+        or protocol.get("data_split_seed") != expected_seed
+    ):
+        raise ValueError("real-data latent cache protocol disagrees with its resolved config")
+    selected_ids = _protocol_tuple(protocol, "selected_trajectory_ids")
+    universe_ids = _protocol_tuple(protocol, "universe_trajectory_ids")
+    actual_manifest = _trajectory_manifest_sha256(actual_ids)
+    if selected_ids != actual_ids or universe_ids != actual_ids:
+        raise ValueError("real-data latent cache trajectory IDs differ from its stored protocol universe")
+    if (
+        protocol.get("trajectory_manifest_sha256") != actual_manifest
+        or protocol.get("universe_manifest_sha256") != actual_manifest
+    ):
+        raise ValueError("real-data latent cache trajectory manifest is invalid")
+    latent_cache = cache_config.get("latent_cache")
+    configured_encoder = latent_cache.get("encoder_checkpoint_path") if isinstance(latent_cache, Mapping) else None
+    if not configured_encoder or protocol.get("encoder_checkpoint") != configured_encoder:
+        raise ValueError("real-data latent cache does not identify one consistent encoder checkpoint")
+    _validate_checkpoint_protocol(
+        str(configured_encoder),
+        expected_seed=expected_seed,
+        expected_backend=expected_backend,
+        expected_universe_ids=actual_ids,
+        expected_artifact_role="encoder_checkpoint",
+        role="latent cache encoder checkpoint",
+        require_complete=True,
+    )
+    return actual_ids
+
+
 def _selected_trajectory_ids(config: ExperimentConfig) -> tuple[str, ...]:
     dataset = build_dataset(config.data)
     ids = tuple(dataset.trajectory_ids())
+    return _selected_ids_from_universe(config, ids)
+
+
+def _selected_ids_from_universe(config: ExperimentConfig, ids: tuple[str, ...]) -> tuple[str, ...]:
     if config.data.split == "all" or len(ids) < 2:
         return ids
     split = split_trajectory_ids(ids, seed=config.data.seed)
     return split[config.data.split]
+
+
+def _requires_complete_protocol(config: ExperimentConfig) -> bool:
+    return config.data.backend == "cyclone_kvikio"
 
 
 def _normalization_stats(config: ExperimentConfig) -> NormalizationStats | None:
@@ -146,7 +472,12 @@ def _normalization_stats(config: ExperimentConfig) -> NormalizationStats | None:
             std=np.asarray(config.data.normalization.std, dtype=np.float32),
         )
     dataset = build_dataset(config.data)
-    return estimate_dataset_stats(dataset, max_samples=config.data.normalization.max_samples)
+    trajectory_ids = _selected_trajectory_ids(config)
+    return estimate_dataset_stats(
+        dataset,
+        trajectory_ids=trajectory_ids,
+        max_samples=config.data.normalization.max_samples,
+    )
 
 
 def _trajectory_normalization_stats(config: ExperimentConfig, ids: tuple[str, ...]) -> dict[str, NormalizationStats]:
@@ -278,9 +609,19 @@ def train_encoder(config: ExperimentConfig, *, dry_run: bool = False) -> dict[st
     final_state = _host_state(state, plan)
     metrics = _host_metrics(metrics, plan)
     ckpt = save_checkpoint(final_state, out, step=int(final_state.step))
+    dataset = build_dataset(config.data)
+    universe_ids = tuple(dataset.trajectory_ids())
+    selected_ids = _selected_ids_from_universe(config, universe_ids)
     summary = {
+        "artifact_role": "encoder_checkpoint",
         "step": int(final_state.step),
         "checkpoint": str(ckpt),
+        **_protocol_fields(
+            config,
+            selected_ids,
+            aggregation="snapshot_minibatch_training",
+            universe_trajectory_ids=universe_ids,
+        ),
         **_device_summary(plan),
         **_system_metrics(plan),
         **{k: float(v) for k, v in metrics.items()},
@@ -358,7 +699,11 @@ def benchmark_step_time(
     }
 
 
-def _encoder_params_for_embedding(config: ExperimentConfig) -> tuple[Any, Any]:
+def _encoder_params_for_embedding(
+    config: ExperimentConfig,
+    *,
+    expected_universe_ids: tuple[str, ...],
+) -> tuple[Any, Any]:
     state, model = _init_encoder_state(config)
     del state
     checkpoint_path = config.latent_cache.encoder_checkpoint_path
@@ -367,6 +712,15 @@ def _encoder_params_for_embedding(config: ExperimentConfig) -> tuple[Any, Any]:
         raise FileNotFoundError("embed-dataset requires latent_cache.encoder_checkpoint_path or an existing checkpoint")
     if not ckpt.exists():
         raise FileNotFoundError(f"encoder checkpoint not found: {ckpt}")
+    _validate_checkpoint_protocol(
+        ckpt,
+        expected_seed=config.data.seed,
+        expected_backend=config.data.backend,
+        expected_universe_ids=expected_universe_ids,
+        expected_artifact_role="encoder_checkpoint",
+        role="encoder checkpoint",
+        require_complete=_requires_complete_protocol(config),
+    )
     payload = load_checkpoint(ckpt)
     return model, _encoder_apply_params(payload["params"])
 
@@ -394,31 +748,43 @@ def _diagnostic_params_from_encoder_params(params: Any) -> Any | None:
 
 def embed_dataset(config: ExperimentConfig, *, dry_run: bool = False) -> dict[str, Any]:
     dataset = build_dataset(config.data)
+    trajectory_ids = tuple(dataset.trajectory_ids())
     if dry_run:
         return {
             "dry_run": True,
             "planned_latent_cache": config.latent_cache.path or str(Path(config.output_dir) / "latent_cache.h5"),
-            "trajectories": len(dataset.trajectory_ids()),
+            "trajectories": len(trajectory_ids),
         }
 
     out = _output_dir(config)
     write_run_metadata(out, config=config.model_dump(mode="json"))
     (out / "config_resolved.yaml").write_text(config_to_yaml(config), encoding="utf-8")
-    model, params = _encoder_params_for_embedding(config)
+    model, params = _encoder_params_for_embedding(config, expected_universe_ids=trajectory_ids)
     cache_path = Path(config.latent_cache.path) if config.latent_cache.path else out / "latent_cache.h5"
 
     encoder_checkpoint_path = str(
         config.latent_cache.encoder_checkpoint_path or latest_checkpoint(config.output_dir) or ""
     )
+    cache_protocol = {
+        "artifact_role": "latent_cache",
+        "encoder_checkpoint": encoder_checkpoint_path,
+        **_protocol_fields(
+            config,
+            trajectory_ids,
+            aggregation="per_snapshot_embedding",
+            universe_trajectory_ids=trajectory_ids,
+        ),
+    }
     writer = LatentCacheWriter(
         cache_path,
         latent_dim=config.model.encoder.latent_dim,
         config_yaml=config_to_yaml(config),
         encoder_checkpoint_path=encoder_checkpoint_path,
+        protocol_metadata=cache_protocol,
     )
     stats = _normalization_stats(config)
-    trajectory_stats = _trajectory_normalization_stats(config, tuple(dataset.trajectory_ids()))
-    for trajectory_id in dataset.trajectory_ids():
+    trajectory_stats = _trajectory_normalization_stats(config, trajectory_ids)
+    for trajectory_id in trajectory_ids:
         snapshots = []
         flux_rows = []
         spectra_rows: dict[str, list[np.ndarray]] = {key: [] for key in config.data.target_spectra}
@@ -452,9 +818,17 @@ def embed_dataset(config: ExperimentConfig, *, dry_run: bool = False) -> dict[st
             spectra={key: np.asarray(rows, dtype=np.float32) for key, rows in spectra_rows.items()},
         )
     summary = {
+        "artifact_role": "latent_cache",
         "latent_cache": str(cache_path),
-        "trajectories": len(dataset.trajectory_ids()),
+        "encoder_checkpoint": encoder_checkpoint_path,
+        "trajectories": len(trajectory_ids),
         "embedding_batch_size": config.data.batch_size,
+        **_protocol_fields(
+            config,
+            trajectory_ids,
+            aggregation="per_snapshot_embedding",
+            universe_trajectory_ids=trajectory_ids,
+        ),
     }
     write_json(out / "metrics.json", summary)
     return summary
@@ -466,6 +840,19 @@ def _latent_cache_for(config: ExperimentConfig) -> Path:
     candidate = Path(config.latent_cache.path)
     if not candidate.exists():
         raise FileNotFoundError(f"latent cache not found: {candidate}")
+    _validate_latent_cache_protocol(
+        candidate,
+        expected_seed=config.data.seed,
+        expected_backend=config.data.backend,
+        require_complete=_requires_complete_protocol(config),
+    )
+    if _requires_complete_protocol(config) and config.latent_cache.encoder_checkpoint_path:
+        protocol = _latent_cache_protocol(candidate)
+        protocol_encoder = protocol.get("encoder_checkpoint") if isinstance(protocol, Mapping) else None
+        if not protocol_encoder or Path(str(protocol_encoder)).resolve() != Path(
+            config.latent_cache.encoder_checkpoint_path
+        ).resolve():
+            raise ValueError("configured encoder checkpoint does not match the real-data latent cache lineage")
     return candidate
 
 
@@ -597,15 +984,12 @@ def _trajectory_relative_l2_by_step(
     for trajectory_id in dict.fromkeys(trajectory_ids):
         indices = np.asarray([index for index, item in enumerate(trajectory_ids) if item == trajectory_id])
         values.append(
-            jnp.linalg.norm(error[indices], axis=(0, 2))
-            / (jnp.linalg.norm(target[indices], axis=(0, 2)) + eps)
+            jnp.linalg.norm(error[indices], axis=(0, 2)) / (jnp.linalg.norm(target[indices], axis=(0, 2)) + eps)
         )
     return jnp.stack(values)
 
 
-def _trajectory_time_average_errors(
-    pred: jax.Array, target: jax.Array, trajectory_ids: list[str]
-) -> jax.Array:
+def _trajectory_time_average_errors(pred: jax.Array, target: jax.Array, trajectory_ids: list[str]) -> jax.Array:
     """Return one absolute time-average error per trajectory."""
 
     unique_ids = tuple(dict.fromkeys(trajectory_ids))
@@ -616,6 +1000,21 @@ def _trajectory_time_average_errors(
         target_mean = jnp.mean(target[indices], axis=(0, 1))
         errors.append(jnp.mean(jnp.abs(pred_mean - target_mean)))
     return jnp.stack(errors)
+
+
+def _shape_correlation(pred: jax.Array, target: jax.Array, *, eps: float) -> jax.Array:
+    """Return a stable last-axis Pearson correlation for each leading index."""
+
+    pred = jnp.asarray(pred)
+    target = jnp.asarray(target)
+    if pred.shape != target.shape or pred.ndim == 0:
+        raise ValueError(f"pred and target must have the same non-scalar shape, got {pred.shape} and {target.shape}")
+    pred_centered = pred - jnp.mean(pred, axis=-1, keepdims=True)
+    target_centered = target - jnp.mean(target, axis=-1, keepdims=True)
+    numerator = jnp.sum(pred_centered * target_centered, axis=-1)
+    pred_norm = jnp.sqrt(jnp.sum(jnp.square(pred_centered), axis=-1) + eps**2)
+    target_norm = jnp.sqrt(jnp.sum(jnp.square(target_centered), axis=-1) + eps**2)
+    return numerator / (pred_norm * target_norm)
 
 
 def _sequence_batches(config: ExperimentConfig, cache_path: Path, *, repeat: bool = True) -> Iterator[dict[str, Any]]:
@@ -732,9 +1131,21 @@ def train_sequence(config: ExperimentConfig, *, dry_run: bool = False) -> dict[s
     final_state = _host_state(state, plan)
     metrics = _host_metrics(metrics, plan)
     ckpt = save_checkpoint(final_state, out, step=int(final_state.step))
+    cache = LatentCacheDataset(cache_path)
+    universe_ids = tuple(cache.trajectory_ids())
+    selected_ids = _selected_cache_trajectory_ids(cache, config)
     summary = {
+        "artifact_role": "sequence_checkpoint",
         "step": int(final_state.step),
         "checkpoint": str(ckpt),
+        "latent_cache": str(cache_path),
+        "encoder_checkpoint": config.latent_cache.encoder_checkpoint_path,
+        **_protocol_fields(
+            config,
+            selected_ids,
+            aggregation="sequence_window_minibatch_training",
+            universe_trajectory_ids=universe_ids,
+        ),
         **_device_summary(plan),
         **_system_metrics(plan),
         **{k: float(v) for k, v in metrics.items()},
@@ -770,6 +1181,16 @@ def evaluate_flux_head(config: ExperimentConfig, *, dry_run: bool = False) -> di
     )
     summary["configured_trajectories"] = list(configured_ids)
     summary["num_configured_trajectories"] = len(configured_ids)
+    summary["latent_cache"] = str(cache_path)
+    summary["encoder_checkpoint"] = config.latent_cache.encoder_checkpoint_path
+    summary.update(
+        _protocol_fields(
+            config,
+            tuple(eval_ids),
+            aggregation="sample_weighted",
+            universe_trajectory_ids=tuple(cache.trajectory_ids()),
+        )
+    )
     flux_pred = np.asarray(summary.pop("flux_pred"), dtype=np.float32)
     flux_target = np.asarray(summary.pop("flux_target"), dtype=np.float32)
     out = _output_dir(config)
@@ -813,6 +1234,16 @@ def plot_representation(config: ExperimentConfig, *, dry_run: bool = False) -> d
         perplexities=config.evaluation.tsne_perplexities,
         tsne_max_iter=config.evaluation.tsne_max_iter,
         max_points=config.evaluation.representation_max_points,
+    )
+    summary["latent_cache"] = str(cache_path)
+    summary["encoder_checkpoint"] = config.latent_cache.encoder_checkpoint_path
+    summary.update(
+        _protocol_fields(
+            config,
+            configured_ids,
+            aggregation="point_level_projection",
+            universe_trajectory_ids=tuple(cache.trajectory_ids()),
+        )
     )
     metrics_path = write_json(out / "metrics.json", summary)
     result = dict(summary)
@@ -858,6 +1289,15 @@ def evaluate_rollout(config: ExperimentConfig, *, dry_run: bool = False) -> dict
     elif config.latent_cache.encoder_checkpoint_path:
         encoder_ckpt_path = Path(config.latent_cache.encoder_checkpoint_path)
         if encoder_ckpt_path.exists():
+            _validate_checkpoint_protocol(
+                encoder_ckpt_path,
+                expected_seed=config.data.seed,
+                expected_backend=config.data.backend,
+                expected_universe_ids=tuple(cache.trajectory_ids()),
+                expected_artifact_role="encoder_checkpoint",
+                role="encoder checkpoint",
+                require_complete=_requires_complete_protocol(config),
+            )
             encoder_params = load_checkpoint(encoder_ckpt_path)["params"]
             diagnostic_params = _diagnostic_params_from_encoder_params(encoder_params)
             if diagnostic_params is None and diagnostic_metrics_requested:
@@ -874,6 +1314,17 @@ def evaluate_rollout(config: ExperimentConfig, *, dry_run: bool = False) -> dict
     if not use_persistence:
         if config.model.sequence is None or config.latent_cache.sequence_checkpoint_path is None:
             raise ValueError("sequence model and checkpoint are required unless persistence baseline is enabled")
+        _validate_checkpoint_protocol(
+            config.latent_cache.sequence_checkpoint_path,
+            expected_seed=config.data.seed,
+            expected_backend=config.data.backend,
+            expected_universe_ids=tuple(cache.trajectory_ids()),
+            expected_artifact_role="sequence_checkpoint",
+            role="sequence checkpoint",
+            require_complete=_requires_complete_protocol(config),
+            expected_cache_path=cache_path,
+            expected_encoder_checkpoint=config.latent_cache.encoder_checkpoint_path,
+        )
         model = build_sequence_model(config.model.sequence)
         params = load_checkpoint(config.latent_cache.sequence_checkpoint_path)["params"]
     preds = []
@@ -939,30 +1390,27 @@ def evaluate_rollout(config: ExperimentConfig, *, dry_run: bool = False) -> dict
                 jnp.mean(jnp.abs(flux_error), axis=2), rollout_trajectory_ids
             )
             flux_relative_error_by_trajectory = _trajectory_values_by_step(
-                jnp.mean(
-                    jnp.abs(flux_error) / (jnp.abs(flux_target) + config.loss.spectra_epsilon), axis=2
-                ),
+                jnp.mean(jnp.abs(flux_error) / (jnp.abs(flux_target) + config.loss.spectra_epsilon), axis=2),
                 rollout_trajectory_ids,
             )
             flux_mse_by_step = jnp.mean(flux_mse_by_trajectory, axis=0)
             flux_mae_by_step = jnp.mean(flux_mae_by_trajectory, axis=0)
             flux_relative_error_by_step = jnp.mean(flux_relative_error_by_trajectory, axis=0)
             flux_mse_value = jnp.mean(flux_mse_by_step)
+            flux_rmse_by_trajectory = jnp.sqrt(jnp.mean(flux_mse_by_trajectory, axis=1))
             flux_time_average_by_trajectory = _trajectory_time_average_errors(
                 flux_pred, flux_target, rollout_trajectory_ids
             )
+            summary["flux_rmse_by_trajectory"] = np.asarray(jax.device_get(flux_rmse_by_trajectory))
+            summary["flux_trajectory_ids"] = np.asarray(tuple(dict.fromkeys(rollout_trajectory_ids)), dtype=str)
             summary["flux_mse_by_step"] = np.asarray(jax.device_get(flux_mse_by_step))
-            summary["flux_mse_std_by_step"] = np.asarray(
-                jax.device_get(jnp.std(flux_mse_by_trajectory, axis=0))
-            )
+            summary["flux_mse_std_by_step"] = np.asarray(jax.device_get(jnp.std(flux_mse_by_trajectory, axis=0)))
             summary["flux_rmse_by_step"] = np.asarray(jax.device_get(jnp.sqrt(flux_mse_by_step)))
             summary["flux_rmse_std_by_step"] = np.asarray(
                 jax.device_get(jnp.std(jnp.sqrt(flux_mse_by_trajectory), axis=0))
             )
             summary["flux_mae_by_step"] = np.asarray(jax.device_get(flux_mae_by_step))
-            summary["flux_mae_std_by_step"] = np.asarray(
-                jax.device_get(jnp.std(flux_mae_by_trajectory, axis=0))
-            )
+            summary["flux_mae_std_by_step"] = np.asarray(jax.device_get(jnp.std(flux_mae_by_trajectory, axis=0)))
             summary["flux_relative_error_by_step"] = np.asarray(jax.device_get(flux_relative_error_by_step))
             summary["flux_relative_error_std_by_step"] = np.asarray(
                 jax.device_get(jnp.std(flux_relative_error_by_trajectory, axis=0))
@@ -1007,14 +1455,11 @@ def evaluate_rollout(config: ExperimentConfig, *, dry_run: bool = False) -> dict
                     rollout_trajectory_ids,
                     eps=config.loss.spectra_epsilon,
                 )
-                pred_centered = spectra_pred - jnp.mean(spectra_pred, axis=2, keepdims=True)
-                target_centered = spectra_target - jnp.mean(spectra_target, axis=2, keepdims=True)
                 shape_corr_by_trajectory = _trajectory_values_by_step(
-                    jnp.sum(pred_centered * target_centered, axis=2)
-                    / (
-                        jnp.linalg.norm(pred_centered, axis=2)
-                        * jnp.linalg.norm(target_centered, axis=2)
-                        + config.loss.spectra_epsilon
+                    _shape_correlation(
+                        spectra_pred,
+                        spectra_target,
+                        eps=config.loss.spectra_epsilon,
                     ),
                     rollout_trajectory_ids,
                 )
@@ -1022,9 +1467,7 @@ def evaluate_rollout(config: ExperimentConfig, *, dry_run: bool = False) -> dict
                 relative_l2_by_step = jnp.mean(relative_l2_by_trajectory, axis=0)
                 shape_corr_by_step = jnp.mean(shape_corr_by_trajectory, axis=0)
                 summary[f"spectra_{key}_mse_by_step"] = np.asarray(jax.device_get(by_step))
-                summary[f"spectra_{key}_mse_std_by_step"] = np.asarray(
-                    jax.device_get(jnp.std(by_trajectory, axis=0))
-                )
+                summary[f"spectra_{key}_mse_std_by_step"] = np.asarray(jax.device_get(jnp.std(by_trajectory, axis=0)))
                 summary[f"spectra_{key}_mse"] = np.asarray(jax.device_get(jnp.mean(by_step)))
                 summary[f"spectra_{key}_log_mse_by_step"] = np.asarray(jax.device_get(log_by_step))
                 summary[f"spectra_{key}_log_mse_std_by_step"] = np.asarray(
@@ -1084,6 +1527,18 @@ def evaluate_rollout(config: ExperimentConfig, *, dry_run: bool = False) -> dict
     summary["num_configured_trajectories"] = np.asarray(len(configured_ids), dtype=np.int32)
     summary["num_selected_trajectories"] = np.asarray(len(selected_ids), dtype=np.int32)
     summary["num_rollout_windows"] = np.asarray(len(preds), dtype=np.int32)
+    summary["latent_cache"] = str(cache_path)
+    summary["encoder_checkpoint"] = config.latent_cache.encoder_checkpoint_path or ""
+    summary["sequence_checkpoint"] = config.latent_cache.sequence_checkpoint_path or "persistence_baseline"
+    summary["rollout_horizon"] = np.asarray(config.evaluation.rollout_steps, dtype=np.int32)
+    summary.update(
+        _protocol_fields(
+            config,
+            selected_ids,
+            aggregation="trajectory_balanced_mean_with_between_trajectory_std",
+            universe_trajectory_ids=tuple(cache.trajectory_ids()),
+        )
+    )
     out = _output_dir(config)
     write_run_metadata(out, config=config.model_dump(mode="json"))
     (out / "config_resolved.yaml").write_text(config_to_yaml(config), encoding="utf-8")

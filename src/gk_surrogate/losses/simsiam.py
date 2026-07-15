@@ -16,7 +16,7 @@ def _require_compatible_vectors(first: Array, second: Array) -> None:
 
 
 def _l2_normalize(x: Array, eps: float) -> Array:
-    norm = jnp.sqrt(jnp.sum(jnp.square(x), axis=-1, keepdims=True) + eps)
+    norm = jnp.sqrt(jnp.sum(jnp.square(x), axis=-1, keepdims=True) + eps**2)
     return x / norm
 
 

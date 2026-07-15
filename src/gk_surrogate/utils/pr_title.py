@@ -8,7 +8,7 @@ TITLE_PATTERN = re.compile(
     r"(?:\([a-z0-9][a-z0-9-]*\))?!?: [^\s].*$"
 )
 DISALLOWED_PATTERNS = (
-    re.compile(r"\b(?:codex|agent|supervisor|meeting|wip|tmp)\b", re.IGNORECASE),
+    re.compile(r"\b(?:codex|agent|supervisor|meetings?|calls?|wip|tmp)\b", re.IGNORECASE),
     re.compile(r"\bphase[\s_-]*\d+\b", re.IGNORECASE),
     re.compile(r"\b20\d{2}-\d{2}-\d{2}\b"),
 )
