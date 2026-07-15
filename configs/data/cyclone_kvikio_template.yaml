@@ -1,0 +1,35 @@
+data:
+  backend: cyclone_kvikio
+  root: ${GK_CYCLONE_DATA_ROOT}
+  split: train
+  input_fields: [df]
+  target_flux: true
+  target_spectra: []
+  context_length: 4
+  prediction_length: 1
+  batch_size: 1
+  shuffle: false
+  num_workers: 0
+  seed: 42
+  normalization:
+    mode: none
+    mean: null
+    std: null
+  cyclone:
+    trajectories: null
+    fields_to_load: [df]
+    conditions: [itg, dg, s_hat, q]
+    normalization: null
+    normalization_scope: dataset
+    normalization_stats: null
+    spatial_ifft: true
+    real_potens: true
+    bundle_seq_length: 1
+    offset: 0
+    tail_offset: 0
+    subsample: 1
+    separate_zf: true
+    decouple_mu: false
+    prefer_dtype: float32
+    use_kvikio: false
+    return_jax: false

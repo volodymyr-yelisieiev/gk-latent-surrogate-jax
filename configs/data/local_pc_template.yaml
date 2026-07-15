@@ -1,0 +1,31 @@
+data:
+  backend: h5
+  root: ${GK_LOCAL_PC_DATA_ROOT}
+  split: train
+  input_fields: [df]
+  target_flux: true
+  target_spectra: [ky, q]
+  context_length: 8
+  prediction_length: 1
+  batch_size: 1
+  shuffle: true
+  num_workers: 0
+  seed: 42
+  normalization:
+    mode: dataset
+    mean: null
+    std: null
+  h5_schema:
+    trajectory_glob: "*.h5"
+    data_group: data
+    timestep_key_template: "timestep_{t:05d}"
+    phi_key_template: "poten_{t:05d}"
+    metadata_group: metadata
+    flux_key: fluxes
+    timestep_key: timesteps
+    spectra_keys:
+      ky: ky_spectrum
+      q: q_spectrum
+    geometry_group: geometry
+    channel_indices: null
+    dtype: float32

@@ -1,0 +1,79 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "gk-latent-surrogate-jax"
+version = "0.1.0"
+description = "JAX/Flax latent time-series surrogate for gyrokinetic turbulence research."
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+authors = [{ name = "Volodymyr Yelisieiev" }]
+dependencies = [
+  "flax",
+  "h5py",
+  "jax",
+  "matplotlib",
+  "numpy",
+  "optax",
+  "pydantic>=2",
+  "PyYAML",
+  "rich",
+  "scikit-learn>=1.9.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "mypy",
+  "pre-commit",
+  "pytest",
+  "pytest-cov",
+  "ruff",
+]
+optional = [
+  "orbax-checkpoint",
+  "wandb",
+  "zarr",
+]
+
+[project.scripts]
+gks = "gk_surrogate.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/gk_surrogate"]
+
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["tests"]
+markers = [
+  "slow: marks tests as slow",
+]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+src = ["src", "tests", "scripts"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM"]
+
+[tool.mypy]
+python_version = "3.11"
+ignore_missing_imports = true
+warn_return_any = false
+disallow_untyped_defs = false
+check_untyped_defs = false
+packages = ["gk_surrogate"]
+disable_error_code = [
+  "arg-type",
+  "assignment",
+  "attr-defined",
+  "misc",
+  "no-any-return",
+  "no-redef",
+  "no-untyped-call",
+  "override",
+  "return-value",
+  "var-annotated",
+]

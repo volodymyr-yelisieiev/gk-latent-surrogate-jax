@@ -1,0 +1,12 @@
+model:
+  sequence:
+    type: causal_transformer
+    latent_dim: 32
+    context_length: 4
+    hidden_dims: [128]
+    extra:
+      embed_dim: 64
+      depth: 2
+      num_heads: 4
+      mlp_ratio: 4.0
+      dropout_rate: 0.0

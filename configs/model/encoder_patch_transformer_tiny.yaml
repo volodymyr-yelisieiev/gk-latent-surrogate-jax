@@ -1,0 +1,21 @@
+model:
+  encoder:
+    type: patch_transformer
+    latent_dim: 64
+    hidden_dims: [128]
+    activation: gelu
+    dropout_rate: 0.0
+    extra:
+      patch_size: [2, 2, 2, 2, 2]
+      embed_dim: 64
+      depth: 2
+      num_heads: 4
+      mlp_ratio: 4.0
+      allow_large_token_count: false
+  diagnostics:
+    flux_dim: 1
+    spectra_dims:
+      ky: 8
+      q: 8
+    hidden_dims: [64]
+    dropout_rate: 0.0

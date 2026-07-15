@@ -1,0 +1,9 @@
+model:
+  sequence:
+    type: gru
+    latent_dim: 32
+    context_length: 4
+    hidden_dims: [128]
+    extra:
+      hidden_dim: 128
+      num_layers: 1

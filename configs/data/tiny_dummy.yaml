@@ -1,0 +1,26 @@
+data:
+  backend: synthetic
+  root: null
+  split: train
+  input_fields: [df]
+  target_flux: true
+  target_spectra: [ky, q]
+  context_length: 4
+  prediction_length: 1
+  batch_size: 2
+  shuffle: true
+  num_workers: 0
+  seed: 42
+  normalization:
+    mode: dataset
+    mean: null
+    std: null
+  synthetic:
+    num_trajectories: 4
+    timesteps: 16
+    channels: 2
+    spatial_shape: [4, 4, 4, 4, 4]
+    flux_dim: 1
+    spectra_dims:
+      ky: 8
+      q: 8

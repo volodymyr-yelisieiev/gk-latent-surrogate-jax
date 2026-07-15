@@ -1,0 +1,14 @@
+model:
+  encoder:
+    type: flatten_mlp
+    latent_dim: 32
+    hidden_dims: [128, 64]
+    activation: gelu
+    dropout_rate: 0.0
+  diagnostics:
+    flux_dim: 1
+    spectra_dims:
+      ky: 8
+      q: 8
+    hidden_dims: [64]
+    dropout_rate: 0.0

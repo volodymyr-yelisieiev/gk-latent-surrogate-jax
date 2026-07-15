@@ -1,0 +1,71 @@
+name: smoke_evaluate_flux_head
+output_dir: outputs/smoke_evaluate_flux_head
+data:
+  backend: synthetic
+  root: null
+  split: val
+  input_fields: [df]
+  target_flux: true
+  target_spectra: [ky, q]
+  context_length: 4
+  prediction_length: 1
+  batch_size: 2
+  shuffle: false
+  num_workers: 0
+  seed: 42
+  normalization:
+    mode: dataset
+    mean: null
+    std: null
+  synthetic:
+    num_trajectories: 4
+    timesteps: 16
+    channels: 2
+    spatial_shape: [4, 4, 4, 4, 4]
+    flux_dim: 1
+    spectra_dims:
+      ky: 8
+      q: 8
+model:
+  encoder:
+    type: flatten_mlp
+    latent_dim: 32
+    hidden_dims: [128, 64]
+    activation: gelu
+    dropout_rate: 0.0
+  diagnostics:
+    flux_dim: 1
+    spectra_dims:
+      ky: 8
+      q: 8
+    hidden_dims: [64]
+    dropout_rate: 0.0
+training:
+  max_steps: 0
+  learning_rate: 0.001
+  weight_decay: 0.0
+  warmup_steps: 0
+  log_every: 1
+  eval_every: 1
+  checkpoint_every: 1
+  dtype: float32
+  jit: true
+  seed: 42
+loss:
+  simsiam_weight: 0.0
+  flux_weight: 1.0
+  spectra_weight: 1.0
+  latent_weight: 1.0
+  use_log_spectra: false
+  spectra_epsilon: 0.000001
+  latent_loss: mse
+evaluation:
+  rollout_steps: 4
+  batch_size: 2
+  metrics: [flux_rmse]
+  flux_head_ridge_alpha: 0.001
+latent_cache:
+  path: outputs/smoke_embed_dataset/latent_cache.h5
+  encoder_checkpoint_path: outputs/smoke_encoder_supervised/checkpoints/step_000005
+  sequence_checkpoint_path: null
+  use_persistence_baseline: false
