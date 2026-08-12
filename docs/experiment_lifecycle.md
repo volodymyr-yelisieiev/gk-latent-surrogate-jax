@@ -12,7 +12,8 @@
 7. Evaluate validation flux RMSE with `gks evaluate-flux-head`.
 8. Generate PCA/t-SNE representation plots with `gks plot-representation`.
 9. Train latent sequence models from cache windows and preserve original telemetry.
-10. Select checkpoints and models on validation only, then evaluate the frozen final protocol.
+10. Select sequence checkpoints by validation latent RMSE and model families by validation flux
+    RMSE, both on validation only, then evaluate the frozen final protocol.
 11. Link accepted raw metrics and figure-source tables through an accepted-run manifest.
 
 Before real-data training, follow `docs/real_data_binding_checklist.md`. The first

@@ -15,13 +15,16 @@ approval or submission.
 
 ## Scientific claim control
 
-- Primary metric: trajectory-balanced flux RMSE.
-- Validation-selected learned model: cache-normalized causal Transformer, flux RMSE `18.179277`.
-- Retrospective test point estimates: Transformer `11.425478`; persistence `11.988926` in
-  preprocessed target units.
-- Primary conclusion: the fixed-protocol point estimate improves by `0.563448` (`4.70%`).
-- Per-trajectory flux RMSE improves in three of five cases; the paired mean difference is `-0.8279`
-  with descriptive 95% t interval `[-2.2249, 0.5692]`, so no significance claim is made.
+- Primary diagnostic metric: trajectory-balanced observed-flux RMSE.
+- Validation-selected learned family: cache-normalized causal Transformer, validation flux RMSE
+  `18.179277`; each sequence checkpoint is selected by validation latent RMSE before this family
+  comparison.
+- Retrospective audit point estimates: observed-flux persistence `3.720813`; Transformer
+  `11.425478`; decoded latent persistence `11.988926`; diagnostic-head oracle `12.071241`.
+- Primary conclusion: the learned model does not beat the observed diagnostic baseline, and the
+  oracle identifies the frozen diagnostic head as a limiting factor.
+- The record contains one training seed, five trajectories, and a previously inspected manifest;
+  it supports no significance, repeatability, or general-superiority claim.
 - Historical mixed-seed values, including `9.2270`, are retained only as explicitly invalidated
   audit evidence.
 - Generalization beyond the 51-trajectory subset, five validation trajectories, five test
@@ -36,9 +39,9 @@ approval or submission.
   manuscript therefore treats GyroSwin as related work and makes no direct numerical comparison.
 - `THESIS-23`: source, figures, tables, references, reproducibility appendix, and review checklist
   exist. The current-source PDF build and page-level review remain to be recorded.
-- `THESIS-24`: package naming and provenance requirements are documented. Public source commits,
-  anonymous W&B access or sanitized fallback, release checksums, and evidence links require external
-  verification.
+- `THESIS-24`: package naming and provenance requirements are documented. No public W&B URL or
+  evidence-release link is claimed after the historical project was pruned; a future protocol must
+  create a new sanitized record before release.
 - `THESIS-25`: the filename convention and human-only submission checklist are prepared. Formal
   upload, grade request, and any institutional declarations remain external actions.
 

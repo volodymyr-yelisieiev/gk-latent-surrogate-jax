@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[2]
 RESULTS = ROOT / "outputs" / "medium_seed52_reproduction"
 FIGURES = ROOT / "thesis" / "figures"
 MODEL = RESULTS / "test_transformer_cache_normalized_locked" / "metrics.json"
-BASELINE = RESULTS / "test_persistence_locked" / "metrics.json"
+DECODED_PERSISTENCE = RESULTS / "test_persistence_locked" / "metrics.json"
 
 
 def load(path: Path) -> dict[str, object]:
@@ -22,7 +22,7 @@ def load(path: Path) -> dict[str, object]:
 
 def horizon_plot(
     model: dict[str, object],
-    baseline: dict[str, object],
+    decoded_persistence: dict[str, object],
     *,
     key: str,
     ylabel: str,
@@ -31,8 +31,8 @@ def horizon_plot(
     fig, ax = plt.subplots(figsize=(6.4, 3.8), constrained_layout=True)
     horizon = np.arange(1, len(model[key]) + 1)
     for metrics, label, color, marker, linestyle in (
-        (baseline, "Persistence", "#5F5F5F", "s", "--"),
-        (model, "Normalized Transformer", "#0072B2", "o", "-"),
+        (decoded_persistence, "Decoded latent persistence", "#5F5F5F", "s", "--"),
+        (model, "Cache-normalized Transformer", "#0072B2", "o", "-"),
     ):
         values = np.asarray(metrics[key], dtype=float)
         std = np.asarray(metrics[f"{key.removesuffix('_by_step')}_std_by_step"], dtype=float)
@@ -53,29 +53,7 @@ def horizon_plot(
     plt.close(fig)
 
 
-def paired_flux_plot(model: dict[str, object], baseline: dict[str, object]) -> None:
-    model_values = np.asarray(model["flux_rmse_by_trajectory"], dtype=float)
-    baseline_values = np.asarray(baseline["flux_rmse_by_trajectory"], dtype=float)
-    fig, ax = plt.subplots(figsize=(5.4, 3.8), constrained_layout=True)
-    for index, (before, after) in enumerate(zip(baseline_values, model_values, strict=True), start=1):
-        improved = after < before
-        color = "#009E73" if improved else "#D55E00"
-        marker = "o" if improved else "^"
-        linestyle = "-" if improved else "--"
-        ax.plot([0, 1], [before, after], marker=marker, linestyle=linestyle, color=color, alpha=0.9)
-        ax.annotate(str(index), (1.03, after), va="center", fontsize=8)
-    ax.set(
-        xlim=(-0.15, 1.22),
-        xticks=[0, 1],
-        xticklabels=["Persistence", "Normalized\nTransformer"],
-        ylabel="Flux RMSE per trajectory",
-    )
-    ax.grid(axis="y", alpha=0.25)
-    fig.savefig(FIGURES / "paired_test_flux_rmse.png", dpi=220)
-    plt.close(fig)
-
-
-def spectra_horizon_plot(model: dict[str, object], baseline: dict[str, object]) -> None:
+def spectra_horizon_plot(model: dict[str, object], decoded_persistence: dict[str, object]) -> None:
     """Plot each spectrum separately so target scale does not hide one series."""
 
     fig, axes = plt.subplots(1, 2, figsize=(7.2, 3.4), constrained_layout=True)
@@ -83,8 +61,8 @@ def spectra_horizon_plot(model: dict[str, object], baseline: dict[str, object]) 
         key = f"spectra_{target}_mse_by_step"
         horizon = np.arange(1, len(model[key]) + 1)
         for metrics, label, color, marker, linestyle in (
-            (baseline, "Persistence", "#5F5F5F", "s", "--"),
-            (model, "Normalized Transformer", "#0072B2", "o", "-"),
+            (decoded_persistence, "Decoded latent persistence", "#5F5F5F", "s", "--"),
+            (model, "Cache-normalized Transformer", "#0072B2", "o", "-"),
         ):
             values = np.asarray(metrics[key], dtype=float)
             ax.plot(
@@ -106,23 +84,22 @@ def spectra_horizon_plot(model: dict[str, object], baseline: dict[str, object]) 
 def main() -> None:
     FIGURES.mkdir(parents=True, exist_ok=True)
     model = load(MODEL)
-    baseline = load(BASELINE)
+    decoded_persistence = load(DECODED_PERSISTENCE)
     horizon_plot(
         model,
-        baseline,
+        decoded_persistence,
         key="mse_by_step",
         ylabel="Latent MSE",
         output="verified_latent_mse_by_step.png",
     )
     horizon_plot(
         model,
-        baseline,
+        decoded_persistence,
         key="flux_mse_by_step",
         ylabel="Flux MSE",
         output="verified_flux_mse_by_step.png",
     )
-    spectra_horizon_plot(model, baseline)
-    paired_flux_plot(model, baseline)
+    spectra_horizon_plot(model, decoded_persistence)
 
 
 if __name__ == "__main__":

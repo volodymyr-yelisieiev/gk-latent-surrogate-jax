@@ -50,7 +50,6 @@ def test_evaluate_rollout_uses_sequence_checkpoint_not_persistence(repo_root, tm
                     "path": embedded["latent_cache"],
                     "encoder_checkpoint_path": enc["checkpoint"],
                     "sequence_checkpoint_path": seq["checkpoint"],
-                    "use_persistence_baseline": False,
                 }
             ),
         }

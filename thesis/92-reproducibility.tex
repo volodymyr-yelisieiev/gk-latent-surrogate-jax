@@ -5,20 +5,20 @@
 \section{Repository}
 
 The implementation repository is available at
-\url{https://github.com/volodymyr-yelisieiev/gk-latent-surrogate-jax}. The retained artifacts record
-the following source commits, published as immutable provenance tags so the identifiers resolve
-independently of the squashed main-branch history:
+\url{https://github.com/volodymyr-yelisieiev/gk-latent-surrogate-jax}. The retained historical
+artifacts record the following source commits. The temporary provenance tags used during the
+earlier audit were deleted during pruning and are not live release references:
 \begin{itemize}
-  \item training tag: \path{experiment-seed52-training-source};\newline
+  \item training source commit:\newline
         source commit: \texttt{f97a0257d7627c8ff896}\newline
         \texttt{0433aed30c750a9f90d5};
-  \item test-evaluation tag: \path{experiment-seed52-evaluation-source};\newline
+  \item test-evaluation source commit:\newline
         source commit: \texttt{280540f54e67c0dbcae2}\newline
         \texttt{53327596bfaf7cbf9307}.
 \end{itemize}
-These tags expose the actual source snapshots; they do not turn the retrospective test into a
-prospective locked test. Test metadata records the SHA-256 of an empty tracked diff; its dirty flag
-refers only to the separately packaged untracked thesis tree.
+These commits identify historical source snapshots; they do not turn the retrospective test into
+a prospective locked test. Test metadata records the SHA-256 of an empty tracked diff; its dirty
+flag refers only to the separately packaged untracked thesis tree.
 The package supports Python
 3.11 and newer, with Python 3.12 preferred.
 
@@ -66,9 +66,10 @@ gks evaluate-rollout \
   --output-dir outputs/medium_seed52_reproduction/validation_transformer_cache_normalized
 \end{lstlisting}
 
-The same validation command is run for all learned candidates and persistence. After selecting the
-cache-normalized Transformer by validation flux RMSE, only that checkpoint and persistence are
-evaluated with \code{data.split=test}. The retained resolved configs are authoritative
+The same validation command is run for all learned candidates and persistence. Each sequence
+trainer selects its checkpoint by validation latent RMSE; the learned family is then selected by
+validation flux RMSE. Only the selected checkpoint and persistence are evaluated with
+\code{data.split=test}. The retained resolved configs are authoritative
 for the exact arguments; the compact commands above communicate the pipeline rather than replacing
 those records.
 
@@ -87,7 +88,8 @@ those records.
     Latent cache & \path{outputs/medium_seed52_reproduction/embed/latent_cache.h5} \\
     Sequence model & \path{outputs/medium_seed52_reproduction/sequence_transformer_cache_normalized/checkpoints/step_000500} \\
     Selected test metrics & \path{outputs/medium_seed52_reproduction/test_transformer_cache_normalized_locked/metrics.json} \\
-    Baseline test metrics & \path{outputs/medium_seed52_reproduction/test_persistence_locked/metrics.json} \\
+    Decoded latent-persistence metrics & \path{outputs/medium_seed52_reproduction/test_persistence_locked/metrics.json} \\
+    Baseline audit & \path{outputs/medium_seed52_reproduction/retrospective_baseline_audit.json} \\
     \bottomrule
   \end{tabularx}
 \end{table}
@@ -109,18 +111,11 @@ The recorded SHA-256 values are:
 
 \section{External Experiment Records}
 
-The retained evidence is mirrored in W\&B as three concise post-hoc records: the
-\href{https://wandb.ai/v-yelisieiev-johannes-kepler-universit-t-linz/gk-latent-surrogate/runs/m52rval1}{validation comparison (m52rval1)},
-the
-\href{https://wandb.ai/v-yelisieiev-johannes-kepler-universit-t-linz/gk-latent-surrogate/runs/m52rper1}{persistence test (m52rper1)},
-and the
-\href{https://wandb.ai/v-yelisieiev-johannes-kepler-universit-t-linz/gk-latent-surrogate/runs/m52rtrn1}{selected-Transformer test (m52rtrn1)}.
-Each record names the evidence role, split seed, trajectory-manifest hash, aggregation, resolved
-configuration, and local artifact hashes. Historical mixed-seed records remain labelled as
-invalidated audit evidence and are not used for a thesis claim. These W\&B records do not contain
-the complete original training telemetry required by the next protocol, and anonymous access has
-not been verified from repository evidence. The test manifest was already inspected when this
-retrospective report was prepared.
+W\&B was optional and disabled for the retained local audit. The historical post-hoc records and
+their tags were deleted during the repository audit, so no W\&B URL or public evidence-release URL
+is claimed. The local baseline audit is generated with
+\path{scripts/audit_retrospective_baselines.py}; it contains only metric values and hashes and is
+not a substitute for the frozen multi-seed protocol or complete training telemetry.
 
 \section{Availability Boundaries}
 

@@ -30,20 +30,14 @@ runtime dependency are outside the implemented scope.
 
 ## Result status
 
-The previous medium-comparison table has been withdrawn: encoder/cache and downstream
-evaluation used different trajectory-split seeds, and fitted normalization was not
-consistently restricted to training trajectories. Those values are not accepted as thesis
-evidence.
-
-The corrected comparison uses split seed 52 throughout, fits cache normalization on the
-training split, and selects the learned candidate on validation. Its five-trajectory test
-evaluation is a retrospective single realization, not pristine locked-test evidence: the
-same manifest was inspected in more than one retained evaluation record. The selected
-cache-normalized Transformer has a lower trajectory-balanced flux RMSE point estimate
-(`11.425478` versus `11.988926`, a `4.70%` reduction). The paired five-trajectory interval
-includes zero, so the result does not establish statistical significance, repeatability, or
-general superiority. Detailed evidence is recorded in
-`docs/medium_guppy_experiment_report.md` and `docs/final_claims.md`.
+No learned-model superiority claim is currently accepted. The retained seed-52 comparison is
+retrospective and uses a frozen diagnostic head; decoded latent persistence and the Transformer
+are not substitutes for direct persistence of the observed flux. The audit gives flux RMSE
+`3.7208` for observed-flux persistence, `11.4255` for the selected Transformer, `11.9889` for
+decoded latent persistence, and `12.0712` for the diagnostic-head oracle on true future latents.
+The oracle result shows that the current head, rather than temporal forecasting alone, limits the
+diagnostic comparison. The multi-seed protocol is planned but has not been run; see
+`docs/result_status.md` and `experiment_protocols/multiseed_v1.json`.
 
 ## Installation and verification
 
@@ -80,7 +74,7 @@ configuration overrides, deterministic seeds, and explicit output directories.
 
 - `configs/` contains portable smoke and server-oriented experiment definitions.
 - `docs/data_contract.md` and `docs/metrics.md` define data and metric semantics.
-- `docs/thesis_result_set.md` separates engineering, validation, and medium-scale evidence.
+- `docs/result_status.md` separates engineering smoke output from thesis-facing evidence.
 - `CONTRIBUTING.md` defines provenance, commit, pull-request, and merge conventions.
 
 Raw data, generated HDF5/NPZ files, latent caches, checkpoints, W&B state, package

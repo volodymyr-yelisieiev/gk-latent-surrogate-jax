@@ -12,18 +12,15 @@ or GPU hardware.
 The final experiment uses one canonical trajectory split from representation learning through
 evaluation. The cache-normalized Transformer was selected as the best learned model on validation
 flux RMSE and then evaluated on a test split that is now reported retrospectively. It obtains flux
-RMSE 11.4255, compared with
-11.9889 for persistence, reducing the primary point estimate by 4.70\%. Flux MAE, latent MSE, and
-aggregate spectra relative error also decrease, although the spectral shape correlation is
-essentially unchanged and the relative errors are large. The model improves per-trajectory flux RMSE in three of five
-cases, but the paired interval includes zero; the experiment therefore provides a
-single-realization point estimate rather than a significance, repeatability, or
-general-superiority claim.
+RMSE 11.4255, compared with 11.9889 for decoded latent persistence and 3.7208 for direct
+observed-flux persistence. The diagnostic-head oracle is 12.0712 even on true future latents;
+therefore the experiment does not support a learned-model advantage and identifies the diagnostic
+head as a major limitation.
 
-The selected representation and training budget produced a lower point estimate than a strong
-temporal baseline in this comparison. Matched seeds, an unseen test set or nested group
-cross-validation, and strict validation-only selection are required before making a broader model
-claim. The thesis makes no claim about full-field reconstruction, long-term forecasting, broad
-gyrokinetic generalization, solver speedup, or superiority to GyroSwin. Its main contribution is
+The selected representation and training budget did not beat the appropriate observed diagnostic
+baseline. Matched seeds, an unseen test set or nested group cross-validation, and strict
+validation-only selection are required before making a broader model claim. The thesis makes no
+claim about full-field reconstruction, long-term forecasting, broad gyrokinetic generalization,
+solver speedup, or superiority to GyroSwin. Its main contribution is
 the implemented pipeline, its lineage checks, and a documented account of where the present
 evidence remains weak.

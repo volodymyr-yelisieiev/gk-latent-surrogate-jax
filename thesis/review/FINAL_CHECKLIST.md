@@ -13,15 +13,16 @@ submission has been performed.
 - [x] Nine-question story summary included as Appendix A, with no answer exceeding three sentences.
 - [x] Reproducibility appendix includes commands, artifact paths, hashes, and availability limits.
 - [x] Author--year bibliography included and compiled.
-- [x] Main numeric claims use the internally consistent split-seed-52 reproduction and
-  validation-only selection. The test is labelled retrospective; flux RMSE is primary and the
-  4.70% point-estimate difference is accompanied by a paired trajectory interval that includes zero.
+- [x] Main numeric claims distinguish observed-flux persistence from decoded latent persistence,
+  label the retained run retrospective, and report the diagnostic-head oracle as an analysis control.
 - [x] The draft does not claim full-field reconstruction or a matched numerical comparison with
   GyroSwin.
 - [ ] Rebuild the PDF from the current source and record the manuscript-audit result.
 - [ ] Run the current repository verification gates and record their exact output; do not reuse an
   earlier test count or coverage percentage.
-- [ ] Check every cited W&B URL while signed out, or prepare the sanitized release fallback.
+- [x] Remove historical W&B URLs and state that no public evidence-release URL is claimed.
+- [ ] Create and audit a sanitized evidence manifest for the frozen multi-seed protocol if that
+  protocol produces accepted results.
 - [ ] Complete matched seeds 52--56 under the frozen protocol before replacing the retrospective
   result with a replicated claim.
 

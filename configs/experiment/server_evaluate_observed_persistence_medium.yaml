@@ -1,5 +1,5 @@
-name: server_evaluate_rollout_longsignal_transformer
-output_dir: outputs/server_evaluate_rollout_longsignal_transformer
+name: server_evaluate_observed_persistence_medium
+output_dir: outputs/server_evaluate_observed_persistence_medium
 data:
   backend: cyclone_kvikio
   root: ${GK_CYCLONE_DATA_ROOT}
@@ -7,11 +7,11 @@ data:
   input_fields: [df]
   target_flux: true
   target_spectra: [kyspec, fluxspec]
-  context_length: 16
+  context_length: 8
   prediction_length: 1
-  batch_size: 4
+  batch_size: 16
   shuffle: false
-  seed: 72
+  seed: 52
   normalization:
     mode: none
     mean: null
@@ -28,7 +28,7 @@ data:
     bundle_seq_length: 1
     offset: 80
     tail_offset: 0
-    subsample: 4
+    subsample: 8
     separate_zf: true
     decouple_mu: false
     prefer_dtype: float32
@@ -40,6 +40,13 @@ model:
     latent_dim: 128
     hidden_dims: [8, 16, 32]
     activation: gelu
+    extra:
+      channels: [8, 16, 32]
+      kernel_size: [1, 1, 1, 1, 1]
+      strides:
+        - [2, 2, 2, 4, 2]
+        - [2, 1, 2, 4, 2]
+        - [2, 1, 1, 2, 2]
     dropout_rate: 0.0
   diagnostics:
     flux_dim: 1
@@ -48,17 +55,7 @@ model:
       fluxspec: 32
     hidden_dims: [256]
     dropout_rate: 0.0
-  sequence:
-    type: causal_transformer
-    latent_dim: 128
-    context_length: 16
-    hidden_dims: [256]
-    extra:
-      embed_dim: 256
-      depth: 3
-      num_heads: 4
-      mlp_ratio: 4.0
-      dropout_rate: 0.0
+  sequence: null
 training:
   max_steps: 0
   learning_rate: 0.001
@@ -67,7 +64,7 @@ training:
   log_every: 1
   eval_every: 1
   checkpoint_every: 1
-  seed: 74
+  seed: 52
 loss:
   simsiam_weight: 0.0
   flux_weight: 1.0
@@ -77,14 +74,13 @@ loss:
   spectra_epsilon: 0.000001
   latent_loss: mse_plus_cosine
 evaluation:
-  rollout_steps: 16
+  baseline_mode: observed_diagnostic_persistence
+  rollout_steps: 8
   metrics: [latent_mse, latent_cosine, flux_mse, spectra_mse]
 latent_cache:
-  path: outputs/latent_cache/server_longsignal/latent_cache.h5
-  encoder_checkpoint_path: outputs/server_encoder_simsiam_longsignal/checkpoints/step_000500
-  sequence_checkpoint_path: outputs/server_sequence_transformer_longsignal/checkpoints/step_000500
-  use_persistence_baseline: false
-  latent_normalization: cache
+  path: outputs/latent_cache/server_medium/latent_cache.h5
+  encoder_checkpoint_path: outputs/server_encoder_simsiam_medium/checkpoints/step_000500
+  sequence_checkpoint_path: null
 parallel:
   mode: auto
   axis_name: devices

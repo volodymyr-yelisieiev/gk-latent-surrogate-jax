@@ -61,6 +61,79 @@ def _configs(tmp_path: Path) -> dict[str, Path]:
     return {role: tmp_path / f"{role}.yaml" for role in protocol_runner.CONFIG_ROLES}
 
 
+def _write_success_evidence(command: list[str], output: Path) -> None:
+    output.mkdir(parents=True, exist_ok=True)
+    data_seed = int(command[command.index("--seed") + 1])
+    training_seed = (
+        int(command[command.index("--training-seed") + 1])
+        if "--training-seed" in command
+        else data_seed
+    )
+    cli_command = command[3]
+    split = "all" if cli_command == "embed-dataset" else "test" if cli_command == "evaluate-rollout" else "train"
+    if "data.split=val" in command:
+        split = "val"
+    if "--split-manifest" in command:
+        manifest_path = Path(command[command.index("--split-manifest") + 1])
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        splits = manifest["splits"]
+        universe_ids = [*splits["train"], *splits["val"], *splits["test"]]
+        selected_ids = universe_ids if split == "all" else splits[split]
+        fold_fields = {
+            "split_fold_id": manifest["fold_id"],
+            "split_manifest_sha256": hashlib.sha256(manifest_path.read_bytes()).hexdigest(),
+        }
+    else:
+        splits = {"train": ["train-a"], "val": ["val-a"], "test": ["test-a"]}
+        universe_ids = [*splits["train"], *splits["val"], *splits["test"]]
+        selected_ids = universe_ids if split == "all" else splits[split]
+        fold_fields = {"split_fold_id": None, "split_manifest_sha256": None}
+    def trajectory_hash(values: list[str]) -> str:
+        return hashlib.sha256(
+            json.dumps(values, ensure_ascii=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
+    payload: dict[str, object] = {
+        "protocol_version": 1,
+        "data_split": split,
+        "data_split_seed": data_seed,
+        "training_seed": training_seed,
+        "selected_trajectory_ids": selected_ids,
+        "trajectory_manifest_sha256": trajectory_hash(selected_ids),
+        "universe_trajectory_ids": universe_ids,
+        "universe_manifest_sha256": trajectory_hash(universe_ids),
+        **fold_fields,
+    }
+    if cli_command in {"train-encoder", "train-sequence"}:
+        checkpoint = output / "checkpoint"
+        checkpoint.mkdir()
+        checkpoint_file = checkpoint / "checkpoint.pkl"
+        checkpoint_file.write_bytes(f"checkpoint:{output}".encode())
+        payload.update(
+            checkpoint=str(checkpoint),
+            checkpoint_sha256=hashlib.sha256(checkpoint_file.read_bytes()).hexdigest(),
+            artifact_role="encoder_checkpoint" if cli_command == "train-encoder" else "sequence_checkpoint",
+        )
+    elif cli_command == "embed-dataset":
+        cache = output / "latent_cache.h5"
+        cache.write_bytes(b"cache")
+        payload.update(latent_cache=str(cache), artifact_role="latent_cache")
+    else:
+        baseline_mode = (
+            "observed_diagnostic_persistence"
+            if output.name == "observed_persistence_eval"
+            else "latent_state_persistence_decoded"
+            if output.name == "latent_persistence_eval"
+            else "none"
+        )
+        payload.update(
+            flux_rmse=1.0 if "gru" in output.name else 2.0,
+            stable=True,
+            num_trajectories=len(selected_ids),
+            baseline_mode=baseline_mode,
+        )
+    (output / "metrics.json").write_text(json.dumps(payload), encoding="utf-8")
+
+
 def test_repository_protocol_defaults_to_blocked_preflight(repo_root: Path, capsys: pytest.CaptureFixture[str]) -> None:
     result = protocol_runner.main(
         [
@@ -75,7 +148,7 @@ def test_repository_protocol_defaults_to_blocked_preflight(repo_root: Path, caps
     assert payload["mode"] == "preflight"
     assert payload["execution"] == []
     assert any("status must be 'frozen'" in blocker for blocker in payload["blockers"])
-    assert any("dataset_revision" in blocker for blocker in payload["blockers"])
+    assert "--universe-manifest is required to verify the dataset universe" in payload["blockers"]
     assert all(stage.get("status") != "completed" for stage in payload["stages"])
 
 
@@ -95,12 +168,14 @@ def test_preflight_builds_matched_seed_plan_when_evidence_is_complete(
 
     monkeypatch.setattr(protocol_runner, "_validate_configs", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(protocol_runner, "_validate_source", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(protocol_runner, "_verify_dataset_bytes", lambda **_kwargs: None)
     report, stages = protocol_runner.preflight(
         protocol_path,
         configs=configs,
         output_root=tmp_path / "runs",
         held_out_manifest=held_out,
         universe_manifest=universe,
+        fold_manifest=None,
         repo_root=repo_root,
         execute=False,
         resume=False,
@@ -113,13 +188,14 @@ def test_preflight_builds_matched_seed_plan_when_evidence_is_complete(
     )
 
     assert report.ready is True
-    assert len(stages) == 35
-    assert {stage.seed for stage in stages} == {52, 53, 54, 55, 56}
+    assert len(stages) == 51
+    assert {stage.seed for stage in stages if stage.seed is not None} == {52, 53, 54, 55, 56}
     assert all(item["status"] == "planned" for item in report.stages)
     assert report.execution == []
     transformer = next(stage for stage in stages if stage.seed == 52 and stage.name == "transformer_eval")
     assert "--seed" in transformer.command
-    assert "52" in transformer.command
+    assert transformer.command[transformer.command.index("--seed") + 1] == "52"
+    assert transformer.command[transformer.command.index("--training-seed") + 1] == "52"
     assert any("{transformer_train.checkpoint}" in part for part in transformer.command)
 
 
@@ -176,7 +252,7 @@ def test_historical_51_trajectory_universe_requires_nested_cv(repo_root: Path, t
     protocol_runner._validate_universe_manifest(protocol, universe, report)
     assert any("historical 51-trajectory universe" in blocker for blocker in report.blockers)
 
-    protocol["data"]["evaluation_route"] = "nested_group_cross_validation"
+    protocol["data"]["evaluation_route"] = "nested_group_holdout_cross_validation"
     report = protocol_runner.PreflightReport()
     ids = protocol_runner._validate_universe_manifest(protocol, universe, report)
     protocol_runner._validate_held_out_manifest(
@@ -208,6 +284,7 @@ def test_execute_requires_gpu_but_preflight_only_warns(
         "output_root": tmp_path / "runs",
         "held_out_manifest": held_out,
         "universe_manifest": universe,
+        "fold_manifest": None,
         "repo_root": repo_root,
         "resume": False,
         "environment": {
@@ -243,18 +320,7 @@ def test_execute_and_resume_require_verified_stage_evidence(tmp_path: Path) -> N
         del cwd, check, text
         calls.append(command)
         output_dir = Path(command[command.index("--output-dir") + 1])
-        output_dir.mkdir(parents=True, exist_ok=True)
-        cli_command = command[3]
-        payload: dict[str, str] = {}
-        if cli_command in {"train-encoder", "train-sequence"}:
-            checkpoint = output_dir / "checkpoints" / "best"
-            checkpoint.mkdir(parents=True, exist_ok=True)
-            payload["checkpoint"] = str(checkpoint)
-        elif cli_command == "embed-dataset":
-            cache = output_dir / "latent_cache.h5"
-            cache.touch()
-            payload["latent_cache"] = str(cache)
-        (output_dir / "metrics.json").write_text(json.dumps(payload), encoding="utf-8")
+        _write_success_evidence(command, output_dir)
         return subprocess.CompletedProcess(command, 0)
 
     first = protocol_runner.execute_stages(
@@ -263,9 +329,16 @@ def test_execute_and_resume_require_verified_stage_evidence(tmp_path: Path) -> N
         resume=False,
         command_runner=successful_runner,
     )
-    assert len(calls) == 7
-    assert all(item["status"] == "completed" for item in first)
+    assert len(calls) == 9
+    assert any(item["status"] == "completed_selection_barrier" for item in first)
+    assert sum(item["status"] == "skipped_unselected" for item in first) == 1
     assert not any("{" in argument for command in calls for argument in command)
+    outputs = [command[command.index("--output-dir") + 1] for command in calls]
+    first_test = min(
+        index for index, output in enumerate(outputs) if output.endswith(("gru_eval", "observed_persistence_eval"))
+    )
+    assert max(index for index, output in enumerate(outputs) if "validation" in output) < first_test
+    assert not any(output.endswith("transformer_eval") for output in outputs)
 
     calls.clear()
     second = protocol_runner.execute_stages(
@@ -275,7 +348,22 @@ def test_execute_and_resume_require_verified_stage_evidence(tmp_path: Path) -> N
         command_runner=successful_runner,
     )
     assert calls == []
-    assert all(item["status"] == "resumed_existing" for item in second)
+    assert all(
+        item["status"] in {"resumed_existing", "completed_selection_barrier", "skipped_unselected"} for item in second
+    )
+
+
+def test_protocol_stage_keeps_development_split_seed_separate_from_training_seed(tmp_path: Path) -> None:
+    stages = protocol_runner.build_stages(
+        _configs(tmp_path),
+        tmp_path / "runs",
+        [53],
+        data_seed=52,
+    )
+    encoder = next(stage for stage in stages if stage.name == "encoder")
+    assert encoder.data_seed == 52
+    assert encoder.command[encoder.command.index("--seed") + 1] == "52"
+    assert encoder.command[encoder.command.index("--training-seed") + 1] == "53"
 
 
 def test_success_without_stage_evidence_is_rejected(tmp_path: Path) -> None:
@@ -425,7 +513,7 @@ def test_held_out_manifest_rejects_missing_route_file_and_identity(
     assert any("final_test_rule" in item for item in report.blockers)
 
     nested = deepcopy(protocol)
-    nested["data"]["evaluation_route"] = "nested_group_cross_validation"
+    nested["data"]["evaluation_route"] = "nested_group_holdout_cross_validation"
     report = protocol_runner.PreflightReport()
     protocol_runner._validate_held_out_manifest(nested, universe, report, resume=False, universe_ids=None)
     assert any("must not supply" in item for item in report.blockers)
@@ -490,6 +578,46 @@ def test_held_out_manifest_rejects_tampering_and_open_state(repo_root: Path, tmp
     assert any("already-opened" in item for item in report.blockers)
 
 
+def test_held_out_manifest_checks_frozen_identity_fields(repo_root: Path, tmp_path: Path) -> None:
+    universe = tmp_path / "universe.json"
+    held_out = tmp_path / "held_out.json"
+    _universe_manifest(universe)
+    _held_out_manifest(held_out, universe)
+    protocol = _frozen_protocol(repo_root / "experiment_protocols" / "multiseed_v1.json", held_out, universe)
+    payload = json.loads(held_out.read_text(encoding="utf-8"))
+    payload.update(protocol_id="wrong", dataset_revision="wrong", universe_manifest_sha256="wrong")
+    held_out.write_text(json.dumps(payload), encoding="utf-8")
+    protocol["data"]["final_test_rule"]["manifest_sha256"] = hashlib.sha256(held_out.read_bytes()).hexdigest()
+    report = protocol_runner.PreflightReport()
+    protocol_runner._validate_held_out_manifest(
+        protocol,
+        held_out,
+        report,
+        resume=False,
+        universe_ids={f"unseen-{index}" for index in range(10)},
+    )
+    assert any("protocol_id" in item for item in report.blockers)
+    assert any("dataset_revision" in item for item in report.blockers)
+    assert any("universe hash" in item for item in report.blockers)
+
+
+def test_outer_fold_manifest_requires_frozen_dataset_and_universe_hash(repo_root: Path, tmp_path: Path) -> None:
+    universe = tmp_path / "universe.json"
+    _universe_manifest(universe)
+    protocol_path = tmp_path / "protocol.json"
+    protocol = _nested_protocol(repo_root, universe)
+    protocol["data"]["dataset_revision"] = None
+    protocol_path.write_text(json.dumps(protocol), encoding="utf-8")
+    with pytest.raises(ValueError, match="dataset_revision"):
+        protocol_runner.write_outer_fold_manifest(protocol_path, universe, tmp_path / "folds.json")
+
+    protocol["data"]["dataset_revision"] = "dataset-v1"
+    protocol["data"]["universe_manifest_sha256"] = "0" * 64
+    protocol_path.write_text(json.dumps(protocol), encoding="utf-8")
+    with pytest.raises(ValueError, match="universe manifest SHA"):
+        protocol_runner.write_outer_fold_manifest(protocol_path, universe, tmp_path / "folds.json")
+
+
 def test_universe_manifest_rejects_bad_files_ids_and_nested_rules(repo_root: Path, tmp_path: Path) -> None:
     universe = tmp_path / "universe.json"
     _universe_manifest(universe)
@@ -520,15 +648,18 @@ def test_universe_manifest_rejects_bad_files_ids_and_nested_rules(repo_root: Pat
 
     _universe_manifest(universe)
     protocol["data"]["universe_manifest_sha256"] = hashlib.sha256(universe.read_bytes()).hexdigest()
-    protocol["data"]["evaluation_route"] = "nested_group_cross_validation"
+    protocol["data"]["evaluation_route"] = "nested_group_holdout_cross_validation"
     protocol["data"]["fallback_rule"] = None
     report = protocol_runner.PreflightReport()
     protocol_runner._validate_universe_manifest(protocol, universe, report)
     assert any("frozen nested" in item for item in report.blockers)
-    protocol["data"]["fallback_rule"] = {"method": "nested_group_cross_validation", "outer_folds": 4}
+    protocol["data"]["fallback_rule"] = {
+        "method": "nested_group_holdout_cross_validation",
+        "outer_folds": 4,
+    }
     report = protocol_runner.PreflightReport()
     protocol_runner._validate_universe_manifest(protocol, universe, report)
-    assert any("at least five" in item for item in report.blockers)
+    assert any("exactly five" in item for item in report.blockers)
 
 
 def test_source_rejects_commit_tag_diff_and_untracked_mismatches(
@@ -596,11 +727,19 @@ def test_config_validation_checks_roles_splits_baselines_and_kvikio(
         if role == "encoder":
             raise ValueError("invalid encoder")
         split = "wrong" if role == "embed" else "test" if role.endswith("eval") else "train"
-        persistence = role in {"gru_eval", "transformer_eval"}
+        baseline_mode = (
+            "latent_state_persistence_decoded"
+            if role == "latent_persistence_eval"
+            else "observed_diagnostic_persistence"
+            if role == "observed_persistence_eval"
+            else "latent_state_persistence_decoded"
+            if role in {"gru_eval", "transformer_eval"}
+            else "none"
+        )
         cyclone = SimpleNamespace(use_kvikio=True)
         return SimpleNamespace(
             data=SimpleNamespace(split=split, backend="cyclone_kvikio", cyclone=cyclone),
-            latent_cache=SimpleNamespace(use_persistence_baseline=persistence),
+            evaluation=SimpleNamespace(baseline_mode=baseline_mode),
         )
 
     monkeypatch.setattr(protocol_runner, "load_config", fake_load)
@@ -609,8 +748,8 @@ def test_config_validation_checks_roles_splits_baselines_and_kvikio(
     assert any("does not exist" in item for item in report.blockers)
     assert any("failed validation" in item for item in report.blockers)
     assert any("data.split=all" in item for item in report.blockers)
-    assert any("persistence_eval config must enable" in item for item in report.blockers)
-    assert any("gru_eval must not" in item for item in report.blockers)
+    assert any("evaluation.baseline_mode=none" in item for item in report.blockers)
+    assert any("config gru_eval must use evaluation.baseline_mode=none" in item for item in report.blockers)
     assert any("requires KvikIO" in item for item in report.blockers)
 
 
@@ -626,6 +765,17 @@ def test_invalid_resume_evidence_dependency_and_stage_failure(tmp_path: Path) ->
     embed.output_dir.mkdir()
     (embed.output_dir / "metrics.json").write_text("{}", encoding="utf-8")
     assert protocol_runner._load_stage_evidence(embed) is None
+    evaluation = protocol_runner.Stage(
+        "gru_eval",
+        52,
+        ("python", "fake"),
+        tmp_path / "evaluation",
+        phase="test",
+        family="gru",
+    )
+    evaluation.output_dir.mkdir()
+    (evaluation.output_dir / "metrics.json").write_text("{}", encoding="utf-8")
+    assert protocol_runner._load_stage_evidence(evaluation) is None
     with pytest.raises(ValueError, match="unresolved stage dependency"):
         protocol_runner._resolve_command(("checkpoint={encoder.checkpoint}",), {})
 
@@ -634,6 +784,221 @@ def test_invalid_resume_evidence_dependency_and_stage_failure(tmp_path: Path) ->
 
     with pytest.raises(RuntimeError, match="exit code 7"):
         protocol_runner.execute_stages([encoder], repo_root=tmp_path, resume=False, command_runner=failed)
+
+
+def test_stage_evidence_contract_is_fail_closed_for_roles_splits_and_artifacts(tmp_path: Path) -> None:
+    output = tmp_path / "gru_eval"
+    command = (
+        "uv",
+        "run",
+        "gks",
+        "evaluate-rollout",
+        "data.split=val",
+        "--seed",
+        "52",
+        "--output-dir",
+        str(output),
+    )
+    stage = protocol_runner.Stage(
+        "gru_eval",
+        52,
+        command,
+        output,
+        phase="validation",
+        family="gru",
+    )
+    _write_success_evidence(list(command), output)
+    assert protocol_runner._load_stage_evidence(stage) is not None
+
+    metrics_path = output / "metrics.json"
+    payload = json.loads(metrics_path.read_text(encoding="utf-8"))
+    payload.pop("protocol_version")
+    metrics_path.write_text(json.dumps(payload), encoding="utf-8")
+    assert protocol_runner._load_stage_evidence(stage) is None
+
+    payload = json.loads(metrics_path.read_text(encoding="utf-8"))
+    payload["protocol_version"] = 1
+    payload["data_split"] = "train"
+    metrics_path.write_text(json.dumps(payload), encoding="utf-8")
+    assert protocol_runner._load_stage_evidence(stage) is None
+
+    payload["data_split"] = "val"
+    payload["selected_trajectory_ids"] = []
+    metrics_path.write_text(json.dumps(payload), encoding="utf-8")
+    assert protocol_runner._load_stage_evidence(stage) is None
+
+    encoder_output = tmp_path / "encoder"
+    encoder_command = (
+        "uv",
+        "run",
+        "gks",
+        "train-encoder",
+        "--seed",
+        "52",
+        "--output-dir",
+        str(encoder_output),
+    )
+    encoder = protocol_runner.Stage("encoder", 52, encoder_command, encoder_output)
+    _write_success_evidence(list(encoder_command), encoder_output)
+    encoder_metrics = encoder_output / "metrics.json"
+    encoder_payload = json.loads(encoder_metrics.read_text(encoding="utf-8"))
+    encoder_payload["artifact_role"] = "wrong-role"
+    encoder_metrics.write_text(json.dumps(encoder_payload), encoding="utf-8")
+    assert protocol_runner._load_stage_evidence(encoder) is None
+
+    encoder_payload["artifact_role"] = "encoder_checkpoint"
+    encoder_payload.pop("checkpoint")
+    encoder_metrics.write_text(json.dumps(encoder_payload), encoding="utf-8")
+    assert protocol_runner._load_stage_evidence(encoder) is None
+
+    encoder_payload["checkpoint"] = str(encoder_output / "checkpoint")
+    encoder_payload["checkpoint_sha256"] = hashlib.sha256(
+        (encoder_output / "checkpoint" / "checkpoint.pkl").read_bytes()
+    ).hexdigest()
+    encoder_payload["checkpoint_sha256"] = "0" * 64
+    encoder_metrics.write_text(json.dumps(encoder_payload), encoding="utf-8")
+    assert protocol_runner._load_stage_evidence(encoder) is None
+
+    payload["selected_trajectory_ids"] = ["val-a"]
+    payload["flux_rmse"] = "not-finite"
+    metrics_path.write_text(json.dumps(payload), encoding="utf-8")
+    assert protocol_runner._load_stage_evidence(stage) is None
+
+
+def test_stage_evidence_checks_exact_fold_manifest_lineage(tmp_path: Path) -> None:
+    manifest_path = tmp_path / "fold.json"
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "fold_id": "fold-0",
+                "splits": {"train": ["train-a"], "val": ["val-a"], "test": ["test-a"]},
+            }
+        ),
+        encoding="utf-8",
+    )
+    output = tmp_path / "gru_eval"
+    command = (
+        "uv",
+        "run",
+        "gks",
+        "evaluate-rollout",
+        "data.split=val",
+        "--split-manifest",
+        str(manifest_path),
+        "--seed",
+        "52",
+        "--output-dir",
+        str(output),
+    )
+    stage = protocol_runner.Stage("gru_eval", 52, command, output, phase="validation", family="gru")
+    _write_success_evidence(list(command), output)
+    assert protocol_runner._load_stage_evidence(stage) is not None
+
+    manifest_path.write_text(json.dumps({"fold_id": "fold-0"}), encoding="utf-8")
+    assert protocol_runner._load_stage_evidence(stage) is None
+
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "fold_id": "fold-0",
+                "splits": {"train": ["train-a"], "val": ["other"], "test": ["test-a"]},
+            }
+        ),
+        encoding="utf-8",
+    )
+    assert protocol_runner._load_stage_evidence(stage) is None
+
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "fold_id": "fold-0",
+                "splits": {"train": ["train-a"], "val": ["val-a"], "test": ["test-a"]},
+            }
+        ),
+        encoding="utf-8",
+    )
+    payload = json.loads((output / "metrics.json").read_text(encoding="utf-8"))
+    payload["split_manifest_sha256"] = "0" * 64
+    (output / "metrics.json").write_text(json.dumps(payload), encoding="utf-8")
+    assert protocol_runner._load_stage_evidence(stage) is None
+
+
+def test_semantic_config_validation_rejects_mislabeled_transformer(repo_root: Path) -> None:
+    from gk_surrogate.config.load import load_config
+
+    base = load_config(repo_root / "configs/experiment/smoke_sequence.yaml", command="train-sequence")
+    latent_persistence = base.model_copy(
+        update={"evaluation": base.evaluation.model_copy(update={"baseline_mode": "latent_state_persistence_decoded"})}
+    )
+    observed_persistence = base.model_copy(
+        update={"evaluation": base.evaluation.model_copy(update={"baseline_mode": "observed_diagnostic_persistence"})}
+    )
+    loaded = {
+        "encoder": base,
+        "embed": base,
+        "gru_train": base,
+        "transformer_train": base,
+        "gru_eval": base,
+        "transformer_eval": base,
+        "latent_persistence_eval": latent_persistence,
+        "observed_persistence_eval": observed_persistence,
+    }
+    report = protocol_runner.PreflightReport()
+    protocol_runner._validate_config_semantics(loaded, report)
+    assert any("transformer roles require sequence type" in blocker for blocker in report.blockers)
+
+
+def test_schema_contract_rejects_null_source_and_outer_fold(repo_root: Path) -> None:
+    payload = json.loads((repo_root / "experiment_protocols/multiseed_v1.json").read_text(encoding="utf-8"))
+    payload["status"] = "frozen"
+    payload["source"].update(commit=None, tag=None, tracked_diff_sha256="a" * 64)
+    payload["accepted_runs"] = [
+        {
+            "outer_fold": None,
+            "stage": "test",
+            "model": "transformer",
+            "training_seed": 52,
+            "wandb_run_id": None,
+            "artifact_manifest_sha256": None,
+            "status": "accepted",
+        }
+    ]
+    report = protocol_runner.PreflightReport()
+    protocol_runner._validate_protocol(payload, report, resume=True)
+    assert any("valid source commit or tag" in blocker for blocker in report.blockers)
+    assert any("outer_fold must be an integer" in blocker for blocker in report.blockers)
+
+
+def test_protocol_schema_reports_missing_fields_estimands_and_run_shapes(repo_root: Path) -> None:
+    report = protocol_runner.PreflightReport()
+    protocol_runner._validate_protocol({}, report, resume=False)
+    assert any("schema missing required fields" in blocker for blocker in report.blockers)
+
+    payload = json.loads((repo_root / "experiment_protocols/multiseed_v1.json").read_text(encoding="utf-8"))
+    payload["status"] = "frozen"
+    payload["source"]["tag"] = "frozen-v1"
+    payload["data"]["dataset_revision"] = "dataset-v1"
+    payload["data"]["universe_manifest_sha256"] = "a" * 64
+    payload["evaluation"]["primary_estimand"] = "wrong"
+    payload["evaluation"]["secondary_estimand"] = "wrong"
+    payload["accepted_runs"] = []
+    report = protocol_runner.PreflightReport()
+    protocol_runner._validate_protocol(payload, report, resume=False)
+    assert any("selected-model-minus-observed" in blocker for blocker in report.blockers)
+    assert any("latent-state-persistence" in blocker for blocker in report.blockers)
+
+    payload["accepted_runs"] = {}
+    report = protocol_runner.PreflightReport()
+    protocol_runner._validate_protocol(payload, report, resume=False)
+    assert any("accepted_runs to be an array" in blocker for blocker in report.blockers)
+
+    payload["accepted_runs"] = []
+    payload["data"].pop("dataset_revision")
+    payload["data"].pop("universe_manifest_sha256")
+    report = protocol_runner.PreflightReport()
+    protocol_runner._validate_protocol(payload, report, resume=False)
+    assert any("dataset_revision is not frozen" in blocker for blocker in report.blockers)
+    assert any("universe_manifest_sha256 is not frozen" in blocker for blocker in report.blockers)
 
 
 def test_main_reports_preflight_error_and_executes_ready_plan(
@@ -660,3 +1025,266 @@ def test_main_reports_preflight_error_and_executes_ready_plan(
     assert protocol_runner.main(["--execute"]) == 0
     payload = json.loads(capsys.readouterr().out)
     assert payload["execution"] == [{"name": "encoder", "status": "completed"}]
+
+
+def _nested_protocol(repo_root: Path, universe: Path) -> dict[str, object]:
+    protocol = _frozen_protocol(
+        repo_root / "experiment_protocols" / "multiseed_v1.json",
+        None,
+        universe,
+    )
+    protocol["data"]["evaluation_route"] = "nested_group_holdout_cross_validation"
+    return protocol
+
+
+def test_outer_fold_generation_is_deterministic_disjoint_and_complete(repo_root: Path, tmp_path: Path) -> None:
+    universe_path = tmp_path / "universe.json"
+    _universe_manifest(universe_path)
+    universe = json.loads(universe_path.read_text(encoding="utf-8"))
+    protocol = _nested_protocol(repo_root, universe_path)
+
+    first = protocol_runner.generate_outer_fold_manifest(protocol, universe)
+    universe["trajectory_ids"] = list(reversed(universe["trajectory_ids"]))
+    second = protocol_runner.generate_outer_fold_manifest(protocol, universe)
+    assert first == second
+    assert first["assignment_algorithm"] == "sha256_rank_round_robin_cyclic_inner_validation_v1"
+    assert first["outer_folds"] == 5
+
+    all_ids = set(universe["trajectory_ids"])
+    all_test_ids: list[str] = []
+    for fold in first["folds"]:
+        train = set(fold["train_trajectory_ids"])
+        validation = set(fold["validation_trajectory_ids"])
+        test = set(fold["test_trajectory_ids"])
+        assert train.isdisjoint(validation)
+        assert train.isdisjoint(test)
+        assert validation.isdisjoint(test)
+        assert train | validation | test == all_ids
+        assert fold["inner_validation_fold"] == (fold["outer_fold"] + 1) % 5
+        all_test_ids.extend(test)
+    assert len(all_test_ids) == len(set(all_test_ids)) == len(all_ids)
+
+
+def test_fold_generation_rejects_unsafe_inputs(repo_root: Path, tmp_path: Path) -> None:
+    universe_path = tmp_path / "universe.json"
+    _universe_manifest(universe_path)
+    universe = json.loads(universe_path.read_text(encoding="utf-8"))
+    protocol = _nested_protocol(repo_root, universe_path)
+    cases = [
+        ({}, universe, "protocol.data"),
+        ({"data": {"fallback_rule": None}}, universe, "nested_group"),
+        (
+            {"data": {"fallback_rule": {"method": "nested_group_holdout_cross_validation", "outer_folds": 4}}},
+            universe,
+            "five",
+        ),
+        (
+            {
+                "data": {
+                    "fallback_rule": {"method": "nested_group_holdout_cross_validation", "outer_folds": 5},
+                    "development_split_seed": None,
+                }
+            },
+            universe,
+            "split_seed",
+        ),
+        (protocol, {"trajectory_ids": []}, "non-empty"),
+        (protocol, {"trajectory_ids": ["a", "a"]}, "duplicate"),
+        (protocol, {"trajectory_ids": ["a"]}, "at least one"),
+    ]
+    for candidate_protocol, candidate_universe, message in cases:
+        with pytest.raises(ValueError, match=message):
+            protocol_runner.generate_outer_fold_manifest(candidate_protocol, candidate_universe)
+
+
+def test_frozen_fold_manifest_is_consumed_and_derives_two_phase_exact_commands(
+    repo_root: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    universe = tmp_path / "universe.json"
+    _universe_manifest(universe)
+    protocol = _nested_protocol(repo_root, universe)
+    protocol_path = tmp_path / "protocol.json"
+    protocol_path.write_text(json.dumps(protocol), encoding="utf-8")
+    fold_manifest = tmp_path / "outer_folds.json"
+    protocol_runner.write_outer_fold_manifest(protocol_path, universe, fold_manifest)
+    protocol["data"]["fallback_rule"]["outer_fold_manifest_sha256"] = hashlib.sha256(
+        fold_manifest.read_bytes()
+    ).hexdigest()
+    protocol_path.write_text(json.dumps(protocol), encoding="utf-8")
+
+    report = protocol_runner.PreflightReport()
+    folds = protocol_runner._validate_outer_fold_manifest(protocol, fold_manifest, universe, report)
+    assert report.blockers == []
+    assert folds == (0, 1, 2, 3, 4)
+
+    monkeypatch.setattr(protocol_runner, "_validate_configs", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(protocol_runner, "_validate_source", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(protocol_runner, "exact_fold_cli_supported", lambda: False)
+    monkeypatch.setattr(protocol_runner, "_verify_dataset_bytes", lambda **_kwargs: None)
+    preflight, stages = protocol_runner.preflight(
+        protocol_path,
+        configs=_configs(tmp_path),
+        output_root=tmp_path / "runs",
+        held_out_manifest=None,
+        universe_manifest=universe,
+        fold_manifest=fold_manifest,
+        repo_root=repo_root,
+        execute=False,
+        resume=False,
+        environment={
+            "gpu_available": True,
+            "kvikio_available": True,
+            "cupy_available": True,
+        },
+    )
+    assert preflight.ready is True
+    assert len(stages) == 255
+    assert {stage.outer_fold for stage in stages} == {0, 1, 2, 3, 4}
+    assert any("lacks --split-manifest" in warning for warning in preflight.warnings)
+    stage = next(item for item in stages if item.outer_fold == 3 and item.seed == 55 and item.name == "gru_train")
+    assert "--split-manifest" in stage.command
+    assert "outer_fold_3" in stage.command[stage.command.index("--split-manifest") + 1]
+    assert "outer_fold_3/seed_55" in str(stage.output_dir)
+
+    monkeypatch.setattr(protocol_runner, "exact_fold_cli_supported", lambda: True)
+    execute_report, _ = protocol_runner.preflight(
+        protocol_path,
+        configs=_configs(tmp_path),
+        output_root=tmp_path / "runs",
+        held_out_manifest=None,
+        universe_manifest=universe,
+        fold_manifest=fold_manifest,
+        repo_root=repo_root,
+        execute=True,
+        resume=False,
+        environment={
+            "gpu_available": True,
+            "kvikio_available": True,
+            "cupy_available": True,
+        },
+        dataset_root=tmp_path,
+    )
+    assert execute_report.ready is True
+
+
+def test_fold_manifest_tampering_and_wrong_route_are_rejected(repo_root: Path, tmp_path: Path) -> None:
+    universe = tmp_path / "universe.json"
+    _universe_manifest(universe)
+    protocol = _nested_protocol(repo_root, universe)
+    protocol_path = tmp_path / "protocol.json"
+    protocol_path.write_text(json.dumps(protocol), encoding="utf-8")
+    folds = tmp_path / "folds.json"
+    protocol_runner.write_outer_fold_manifest(protocol_path, universe, folds)
+    protocol["data"]["fallback_rule"]["outer_fold_manifest_sha256"] = "a" * 64
+    payload = json.loads(folds.read_text(encoding="utf-8"))
+    payload["folds"][0]["test_trajectory_ids"].append("tampered")
+    folds.write_text(json.dumps(payload), encoding="utf-8")
+    report = protocol_runner.PreflightReport()
+    assert protocol_runner._validate_outer_fold_manifest(protocol, folds, universe, report) == ()
+    assert any("SHA-256" in item for item in report.blockers)
+    assert any("deterministic regeneration" in item for item in report.blockers)
+
+    protocol["data"]["evaluation_route"] = "final_unseen_test"
+    report = protocol_runner.PreflightReport()
+    protocol_runner._validate_outer_fold_manifest(protocol, folds, universe, report)
+    assert any("must not supply" in item for item in report.blockers)
+
+
+def test_current_cli_exposes_exact_fold_support() -> None:
+    assert protocol_runner.exact_fold_cli_supported() is True
+
+
+def test_generate_fold_manifest_cli_writes_only_manifest(
+    repo_root: Path,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    universe = tmp_path / "universe.json"
+    _universe_manifest(universe)
+    protocol = _nested_protocol(repo_root, universe)
+    protocol_path = tmp_path / "protocol.json"
+    protocol_path.write_text(json.dumps(protocol), encoding="utf-8")
+    output = tmp_path / "generated" / "folds.json"
+    result = protocol_runner.main(
+        [
+            "--protocol",
+            str(protocol_path),
+            "--universe-manifest",
+            str(universe),
+            "--generate-fold-manifest",
+            str(output),
+        ]
+    )
+    payload = json.loads(capsys.readouterr().out)
+    assert result == 0
+    assert output.is_file()
+    assert payload["outer_folds"] == 5
+    assert payload["execution"] == []
+    assert payload["sha256"] == hashlib.sha256(output.read_bytes()).hexdigest()
+    assert all(
+        output.with_name(f"{output.stem}.outer_fold_{outer_fold}{output.suffix}").is_file() for outer_fold in range(5)
+    )
+
+    assert protocol_runner.main(["--generate-fold-manifest", str(tmp_path / "bad.json")]) == 2
+    assert "requires --universe-manifest" in json.loads(capsys.readouterr().out)["error"]
+
+
+def test_exact_fold_execution_and_resume_keep_evidence_isolated(tmp_path: Path) -> None:
+    fold_manifest = tmp_path / "folds.json"
+    fold_manifest.write_text("{}", encoding="utf-8")
+    for outer_fold in (0, 1):
+        protocol_runner._fold_cli_manifest_path(fold_manifest, outer_fold).write_text(
+            json.dumps(
+                {
+                    "fold_id": f"outer-{outer_fold}",
+                    "splits": {
+                        "train": [f"train-{outer_fold}"],
+                        "val": [f"val-{outer_fold}"],
+                        "test": [f"test-{outer_fold}"],
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+    stages = protocol_runner.build_stages(
+        _configs(tmp_path),
+        tmp_path / "runs",
+        [52],
+        fold_manifest=fold_manifest,
+        outer_folds=(0, 1),
+    )
+    commands: list[list[str]] = []
+
+    def runner(command: list[str], **_kwargs) -> subprocess.CompletedProcess[str]:
+        commands.append(command)
+        output = Path(command[command.index("--output-dir") + 1])
+        _write_success_evidence(command, output)
+        return subprocess.CompletedProcess(command, 0)
+
+    completed = protocol_runner.execute_stages(
+        stages,
+        repo_root=tmp_path,
+        resume=False,
+        command_runner=runner,
+    )
+    assert len(commands) == 18
+    assert {item["outer_fold"] for item in completed} == {0, 1}
+    for command in commands:
+        split_manifest = command[command.index("--split-manifest") + 1]
+        fold = "0" if "outer_fold_0" in split_manifest else "1"
+        assert f"outer_fold_{fold}" in command[command.index("--output-dir") + 1]
+        assert not any("{" in argument for argument in command)
+
+    commands.clear()
+    resumed = protocol_runner.execute_stages(
+        stages,
+        repo_root=tmp_path,
+        resume=True,
+        command_runner=runner,
+    )
+    assert commands == []
+    assert all(
+        item["status"] in {"resumed_existing", "completed_selection_barrier", "skipped_unselected"} for item in resumed
+    )

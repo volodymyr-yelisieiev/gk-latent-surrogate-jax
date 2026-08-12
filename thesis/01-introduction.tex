@@ -33,15 +33,16 @@ The central research question is:
 \begin{quote}
 Can a compact JAX/Flax latent surrogate learn short-horizon gyrokinetic dynamics from
 preprocessed five-dimensional field snapshots, and do latent sequence models improve
-flux-predictive rollouts over a persistence baseline on held-out trajectories?
+flux-predictive rollouts over direct persistence of the observed flux on held-out trajectories?
 \end{quote}
 
 The question is operationalized through three sub-questions:
 
 \begin{enumerate}[label=RQ\arabic*]
   \item Does the encoder retain flux-relevant information in a 128-dimensional latent space?
-  \item Which of persistence, a gated recurrent unit (GRU), and a causal Transformer produces the
-        best eight-step latent rollout under a common test protocol?
+  \item Which of latent-state persistence, a gated recurrent unit (GRU), and a causal Transformer
+        produces the best eight-step latent rollout under a common test protocol, and does its flux
+        forecast beat direct persistence of the observed flux?
   \item Does cache normalization materially change the ranking of the learned sequence models?
 \end{enumerate}
 
@@ -60,11 +61,12 @@ This thesis makes the following contributions:
         trajectory-level train, validation, and test splits;
   \item a representation objective combining SimSiam-style invariance with supervised flux and
         spectra heads;
-  \item latent caching and comparable persistence, GRU, MLP-delta, and causal Transformer dynamics;
+  \item latent caching and comparable latent-state persistence, observed-diagnostic persistence,
+        GRU, MLP-delta, and causal Transformer references;
   \item trajectory-balanced rollout evaluation with latent, flux, spectra, and stability metrics;
-  \item a lineage-audited medium-scale comparison with validation-only model selection and a
-        retrospective test realization, where the selected Transformer has a 4.70\% lower
-        flux-RMSE point estimate than persistence; and
+  \item a lineage-audited medium-scale comparison showing that the selected Transformer does not
+        beat direct observed-flux persistence, and that the frozen diagnostic head limits the
+        reported flux error; and
   \item a reproducibility-oriented command-line interface, configuration system, test suite, and
         provenance ledger that separates engineering smoke tests from empirical evidence.
 \end{itemize}

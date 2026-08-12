@@ -45,14 +45,19 @@ checkpoints, and latent caches out of the public bundle.
 
 ## Analysis and reporting decision rule
 
-Validation selects checkpoints and the learned model by trajectory-balanced flux RMSE. The primary
-final estimand is the paired Transformer-minus-persistence difference in per-trajectory flux RMSE,
-averaged over training seeds and trajectories. Compute a paired hierarchical bootstrap that
+Each sequence trainer selects its checkpoint by trajectory-balanced validation latent RMSE, the
+training objective available without reopening the test split. The learned model family is then
+selected within each outer fold by trajectory-balanced validation flux RMSE. The primary final
+estimand is the paired selected-model-minus-observed-diagnostic-persistence difference in
+per-trajectory flux RMSE, averaged over outer folds, training seeds, and trajectories. Compute a
+paired hierarchical bootstrap that
 resamples training seeds and trajectories; also report variability between seeds and the fraction
 of trajectories improved.
 
 The existing scalar `flux_rmse` remains a secondary headline for continuity. It is the square root
 of mean trajectory MSE, not mean per-trajectory RMSE. Report `kyspec` and `fluxspec` separately.
+Decoded latent-state persistence is a secondary latent-dynamics reference; applying the diagnostic
+head to true future latents is an analysis control, not a forecast ceiling.
 If the primary interval contains zero, write that the study found no convincing advantage. A
 negative result is accepted protocol evidence; changing selection after seeing it is not.
 

@@ -70,23 +70,17 @@ def test_latent_cache_roundtrips_path_like_trajectory_ids(tmp_path):
     assert target.shape == (1, 2)
 
 
-def test_latent_cache_reads_legacy_group_names(tmp_path):
-    path = tmp_path / "legacy.h5"
+def test_latent_cache_requires_explicit_trajectory_ids(tmp_path):
+    path = tmp_path / "invalid.h5"
     with h5py.File(path, "w") as handle:
         handle.create_group("metadata").attrs["latent_dim"] = 2
         root = handle.create_group("trajectories")
-        direct = root.create_group("legacy id")
+        direct = root.create_group("missing_attribute")
         direct.create_dataset("z", data=np.ones((2, 2), dtype=np.float32))
         direct.create_dataset("timestep_index", data=np.arange(2, dtype=np.int32))
-        attr_group = root.create_group("stored_elsewhere")
-        attr_group.attrs["trajectory_id"] = "path/like/id"
-        attr_group.create_dataset("z", data=np.ones((3, 2), dtype=np.float32))
-        attr_group.create_dataset("timestep_index", data=np.arange(3, dtype=np.int32))
 
-    dataset = LatentCacheDataset(path)
-    assert dataset.trajectory_ids() == ("legacy id", "path/like/id")
-    assert dataset.get_trajectory_latents("legacy id").shape == (2, 2)
-    assert dataset.get_trajectory_latents("path/like/id").shape == (3, 2)
+    with pytest.raises(ValueError, match="missing trajectory_id"):
+        LatentCacheDataset(path)
 
 
 def test_latent_cache_rejects_inconsistent_dim(tmp_path):

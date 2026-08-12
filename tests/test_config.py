@@ -205,10 +205,9 @@ def test_unresolved_env_paths_are_rejected(repo_root, monkeypatch):
             overrides=["output_dir=$GK_MISSING_OUTPUT_ROOT/out"],
             command="train-encoder",
         )
-    monkeypatch.setenv("GK_CYCLONE_DATA_ROOT", str(repo_root / "missing-real-data"))
-    monkeypatch.delenv("GK_SMALL_VALIDATION_TRAJ_0", raising=False)
-    with pytest.raises(ValueError, match=r"data\.cyclone\.trajectories\[0\] contains unresolved"):
+    monkeypatch.delenv("GK_CYCLONE_DATA_ROOT", raising=False)
+    with pytest.raises(ValueError, match=r"data\.root contains unresolved"):
         load_config(
-            repo_root / "configs/experiment/server_encoder_simsiam_small.yaml",
+            repo_root / "configs/experiment/server_encoder_simsiam_medium.yaml",
             command="train-encoder",
         )

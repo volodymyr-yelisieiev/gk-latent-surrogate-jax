@@ -812,10 +812,12 @@ def _format_direct_trajectory_path(root: Path, trajectory: str, config: CycloneK
 
 
 def _read_direct_metadata(path: Path) -> Mapping[str, Any]:
-    with (path / "metadata.pkl").open("rb") as handle:
+    light_path = path / "metadata_light.pkl"
+    metadata_path = light_path if light_path.is_file() else path / "metadata.pkl"
+    with metadata_path.open("rb") as handle:
         metadata = pickle.load(handle)
     if not isinstance(metadata, Mapping):
-        msg = f"Cyclone metadata must be a mapping: {path / 'metadata.pkl'}"
+        msg = f"Cyclone metadata must be a mapping: {metadata_path}"
         raise TypeError(msg)
     if "fluxes" not in metadata and "flux" in metadata and isinstance(metadata, MutableMapping):
         metadata["fluxes"] = metadata["flux"]

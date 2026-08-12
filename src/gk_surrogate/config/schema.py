@@ -148,6 +148,7 @@ class DataConfig(StrictModel):
     backend: Literal["synthetic", "h5", "cyclone_kvikio"]
     root: str | None = None
     split: Literal["train", "val", "test", "all"] = "train"
+    split_manifest: str | None = None
     input_fields: tuple[str, ...] = ("df",)
     target_flux: bool = True
     target_spectra: tuple[str, ...] = ()
@@ -260,6 +261,11 @@ class LossConfig(StrictModel):
 
 class EvaluationConfig(StrictModel):
     rollout_steps: int = Field(default=4, ge=1)
+    baseline_mode: Literal[
+        "none",
+        "latent_state_persistence_decoded",
+        "observed_diagnostic_persistence",
+    ] = "none"
     metrics: tuple[str, ...] = ("latent_mse", "flux_mse", "spectra_mse")
     flux_head_ridge_alpha: float = Field(default=1e-3, ge=0.0)
     tsne_perplexities: tuple[float, ...] = (5.0, 30.0)
@@ -271,7 +277,6 @@ class LatentCacheConfig(StrictModel):
     path: str | None = None
     encoder_checkpoint_path: str | None = None
     sequence_checkpoint_path: str | None = None
-    use_persistence_baseline: bool = False
     latent_normalization: Literal["none", "cache"] = "none"
     latent_normalization_split: Literal["train", "selected", "all"] = "train"
     latent_normalization_epsilon: float = Field(default=1e-6, gt=0.0)

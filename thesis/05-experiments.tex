@@ -41,7 +41,8 @@ The principal comparison uses persistence, GRU, causal Transformer, cache-normal
 cache-normalized causal Transformer. Each learned model has its own checkpoint, but the encoder,
 latent cache, validation trajectories, context length, forecast horizon, diagnostic heads, and
 aggregation are fixed. The four learned candidates and persistence are first evaluated on the
-validation split. Flux RMSE selects the strongest learned candidate; that candidate and the
+validation split. Sequence checkpoints are selected by validation latent RMSE, then flux RMSE
+selects the strongest learned family; that candidate and the
 predeclared persistence reference are then compared on the test manifest. Because the manifest was
 inspected in more than one retained evaluation and is known during this audit, the result is
 retrospective rather than a prospective locked test. The test comparison is
@@ -81,11 +82,9 @@ unit.
 
 \section{Additional Experiments}
 
-A separate log-spectra sensitivity cache evaluates the same model families under a different
-preprocessing protocol. An optional GuppyLM trunk-transfer experiment maps compatible attention
-and MLP tensors from a small text language model while reinitializing the continuous latent
-projections. These experiments are reported only as sensitivity evidence because their cache and
-initialization protocols differ from the principal table.
+No transfer-learning, log-spectra sensitivity, or external-architecture result is included in the
+evidence set. These branches remain implementation options, but their data and initialization
+protocols are not matched to the principal comparison and no numerical claim is made from them.
 
 GyroSwin remains related work rather than an experimental row. Public architecture descriptions do
 not provide the matched artifact bundle needed to run its checkpoint under the exact split and

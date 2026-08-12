@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from collections.abc import Iterator, Mapping
 from pathlib import Path
 from time import perf_counter
-from typing import Any
+from typing import Any, cast
 
 import h5py
 import jax
@@ -27,12 +28,19 @@ from gk_surrogate.data.normalization import (
     normalize_snapshot,
 )
 from gk_surrogate.data.sequence_dataset import valid_sequence_starts
-from gk_surrogate.data.split import split_trajectory_ids
+from gk_surrogate.data.split import (
+    TrajectorySplits,
+    resolve_trajectory_splits,
+)
+from gk_surrogate.data.split import (
+    split_trajectory_ids as _seeded_split_trajectory_ids,
+)
 from gk_surrogate.evaluation.flux_head import evaluate_flux_head as evaluate_linear_flux_head
 from gk_surrogate.evaluation.reports import save_rollout_plots, save_rollout_report
 from gk_surrogate.evaluation.representation import evaluate_representation
 from gk_surrogate.evaluation.rollout import (
     autoregressive_rollout,
+    observed_diagnostic_persistence,
     persistence_rollout,
     trajectory_balanced_rollout_metrics,
 )
@@ -44,6 +52,7 @@ from gk_surrogate.factory import (
     build_simsiam_encoder_with_diagnostics,
 )
 from gk_surrogate.losses.diagnostics import diagnostic_prediction_loss
+from gk_surrogate.models.diagnostics import DiagnosticPredictions
 from gk_surrogate.parallel.batch import drop_or_pad_to_multiple, shard_batch
 from gk_surrogate.parallel.devices import ParallelPlan, get_local_devices, resolve_parallel_mode, write_device_report
 from gk_surrogate.parallel.pmap_steps import (
@@ -65,9 +74,18 @@ from gk_surrogate.utils.paths import ensure_dir
 _PROTOCOL_VERSION = 1
 _UNSET = object()
 
+# Backward-compatible test/helper surface; new pipeline code uses the manifest-aware resolver.
+split_trajectory_ids = _seeded_split_trajectory_ids
+
 
 def _output_dir(config: ExperimentConfig) -> Path:
     return ensure_dir(config.output_dir)
+
+
+def _relative_artifact_path(path: str | Path) -> str:
+    """Represent a local artifact without embedding a machine-specific absolute root."""
+
+    return os.path.relpath(Path(path).resolve(), start=Path.cwd().resolve())
 
 
 def _loss_config(config: ExperimentConfig) -> dict[str, Any]:
@@ -268,6 +286,65 @@ def _trajectory_manifest_sha256(trajectory_ids: tuple[str, ...]) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
+def _portable_trajectory_ids(config: ExperimentConfig, trajectory_ids: tuple[str, ...]) -> tuple[str, ...]:
+    """Remove machine-specific roots from trajectory provenance identifiers."""
+
+    portable = _portable_trajectory_ids_from_values(trajectory_ids)
+    if len(set(portable)) != len(portable):
+        raise ValueError("portable trajectory IDs collide after removing machine-specific roots")
+    return portable
+
+
+def _portable_trajectory_ids_from_values(trajectory_ids: tuple[str, ...]) -> tuple[str, ...]:
+    portable = []
+    for value in trajectory_ids:
+        identifier = Path(value).name if Path(value).is_absolute() else value
+        for suffix in ("_ifft_realpotens", "_ifft"):
+            if identifier.endswith(suffix):
+                identifier = identifier[: -len(suffix)]
+                break
+        portable.append(identifier)
+    return tuple(portable)
+
+
+def _trajectory_splits(config: ExperimentConfig, universe_ids: tuple[str, ...]) -> TrajectorySplits:
+    portable_ids = _portable_trajectory_ids(config, universe_ids)
+    raw_by_portable = dict(zip(portable_ids, universe_ids, strict=True))
+    if len(portable_ids) == 1 and config.data.split_manifest is None:
+        return TrajectorySplits(
+            train=universe_ids,
+            val=(),
+            test=(),
+            strategy="single_trajectory_fallback",
+        )
+    if config.data.split_manifest is None:
+        portable_splits = resolve_trajectory_splits(portable_ids, seed=config.data.seed)
+    else:
+        portable_splits = resolve_trajectory_splits(
+            portable_ids,
+            seed=config.data.seed,
+            manifest_path=config.data.split_manifest,
+        )
+    return TrajectorySplits(
+        train=tuple(raw_by_portable[value] for value in portable_splits.train),
+        val=tuple(raw_by_portable[value] for value in portable_splits.val),
+        test=tuple(raw_by_portable[value] for value in portable_splits.test),
+        strategy=portable_splits.strategy,
+        manifest_path=portable_splits.manifest_path,
+        manifest_sha256=portable_splits.manifest_sha256,
+        fold_id=portable_splits.fold_id,
+    )
+
+
+def _validate_explicit_manifest_against_cache(config: ExperimentConfig) -> None:
+    if config.data.split_manifest is None:
+        return
+    if not config.latent_cache.path or not Path(config.latent_cache.path).is_file():
+        raise FileNotFoundError("explicit split manifest validation requires an existing latent cache")
+    cache = LatentCacheDataset(config.latent_cache.path)
+    _trajectory_splits(config, tuple(cache.trajectory_ids()))
+
+
 def _protocol_fields(
     config: ExperimentConfig,
     trajectory_ids: tuple[str, ...],
@@ -276,18 +353,30 @@ def _protocol_fields(
     universe_trajectory_ids: tuple[str, ...] | None = None,
 ) -> dict[str, Any]:
     universe_ids = trajectory_ids if universe_trajectory_ids is None else universe_trajectory_ids
+    splits = _trajectory_splits(config, universe_ids) if len(universe_ids) >= 2 else None
+    portable_selected = _portable_trajectory_ids(config, trajectory_ids)
+    portable_universe = _portable_trajectory_ids(config, universe_ids)
     return {
         "protocol_version": _PROTOCOL_VERSION,
         "data_backend": config.data.backend,
         "data_split": config.data.split,
         "data_split_seed": config.data.seed,
         "training_seed": config.training.seed,
-        "selected_trajectory_ids": list(trajectory_ids),
+        "selected_trajectory_ids": list(portable_selected),
         "num_selected_trajectories": len(trajectory_ids),
-        "trajectory_manifest_sha256": _trajectory_manifest_sha256(trajectory_ids),
-        "universe_trajectory_ids": list(universe_ids),
+        "trajectory_manifest_sha256": _trajectory_manifest_sha256(portable_selected),
+        "universe_trajectory_ids": list(portable_universe),
         "num_universe_trajectories": len(universe_ids),
-        "universe_manifest_sha256": _trajectory_manifest_sha256(universe_ids),
+        "universe_manifest_sha256": _trajectory_manifest_sha256(portable_universe),
+        "split_strategy": splits.strategy if splits else "single_trajectory",
+        "split_manifest_path": Path(splits.manifest_path).name if splits and splits.manifest_path else None,
+        "split_manifest_sha256": splits.manifest_sha256 if splits else None,
+        "split_fold_id": splits.fold_id if splits else None,
+        "train_trajectory_ids": (
+            list(_portable_trajectory_ids(config, splits.train)) if splits else list(portable_universe)
+        ),
+        "validation_trajectory_ids": list(_portable_trajectory_ids(config, splits.val)) if splits else [],
+        "test_trajectory_ids": list(_portable_trajectory_ids(config, splits.test)) if splits else [],
         "aggregation": aggregation,
     }
 
@@ -368,11 +457,12 @@ def _validate_checkpoint_protocol(
     require_complete: bool,
     expected_cache_path: str | Path | None = None,
     expected_encoder_checkpoint: str | Path | None = None,
+    expected_split_manifest: str | Path | None = None,
 ) -> None:
     """Validate a trained checkpoint against one complete trajectory protocol."""
 
     artifacts = _checkpoint_run_artifacts(checkpoint_path)
-    if not require_complete:
+    if not require_complete and expected_split_manifest is None:
         _validate_checkpoint_split_seed(checkpoint_path, expected_seed=expected_seed, role=role)
         return
     if artifacts is None:
@@ -391,6 +481,14 @@ def _validate_checkpoint_protocol(
         )
     if data.get("split") != "train":
         raise ValueError(f"{role} must be trained with data.split='train', got {data.get('split')!r}")
+    expected_portable_universe = _portable_trajectory_ids_from_values(expected_universe_ids)
+    expected_splits = resolve_trajectory_splits(
+        expected_portable_universe,
+        seed=expected_seed,
+        manifest_path=expected_split_manifest,
+    )
+    if expected_split_manifest is not None and not data.get("split_manifest"):
+        raise ValueError(f"{role} resolved config is missing its explicit split manifest")
 
     required = {
         "protocol_version",
@@ -423,19 +521,17 @@ def _validate_checkpoint_protocol(
 
     universe_ids = _protocol_tuple(metrics, "universe_trajectory_ids")
     selected_ids = _protocol_tuple(metrics, "selected_trajectory_ids")
-    if universe_ids != expected_universe_ids:
+    if universe_ids != expected_portable_universe:
         raise ValueError(f"{role} trajectory universe does not match the consuming protocol")
-    if metrics.get("universe_manifest_sha256") != _trajectory_manifest_sha256(expected_universe_ids):
+    if metrics.get("universe_manifest_sha256") != _trajectory_manifest_sha256(expected_portable_universe):
         raise ValueError(f"{role} trajectory-universe manifest is invalid")
-    expected_train_ids = (
-        expected_universe_ids
-        if len(expected_universe_ids) < 2
-        else split_trajectory_ids(expected_universe_ids, seed=expected_seed)["train"]
-    )
+    expected_train_ids = expected_splits.train
     if selected_ids != expected_train_ids:
         raise ValueError(f"{role} selected trajectory IDs do not match the canonical training split")
     if metrics.get("trajectory_manifest_sha256") != _trajectory_manifest_sha256(expected_train_ids):
         raise ValueError(f"{role} training trajectory manifest is invalid")
+    if metrics.get("split_manifest_sha256") != expected_splits.manifest_sha256:
+        raise ValueError(f"{role} split-manifest lineage does not match the consuming fold")
     if Path(str(metrics["checkpoint"])).resolve() != Path(checkpoint_path).resolve():
         raise ValueError(f"{role} metrics checkpoint path does not identify the loaded checkpoint")
     if expected_artifact_role == "sequence_checkpoint":
@@ -533,7 +629,11 @@ def _cache_encoder_checkpoint(path: str | Path) -> Path:
     candidates = [str(value) for value in (raw_attr, configured, protocol_path) if value]
     if not candidates:
         raise ValueError("latent cache is missing authoritative encoder-checkpoint lineage")
-    resolved = {Path(value).resolve() for value in candidates}
+    cache_parent = Path(path).resolve().parent
+    resolved = {
+        (Path(value) if Path(value).is_absolute() else cache_parent / value).resolve()
+        for value in candidates
+    }
     if len(resolved) != 1:
         raise ValueError("latent cache metadata disagrees about its encoder-checkpoint lineage")
     checkpoint = next(iter(resolved))
@@ -589,12 +689,13 @@ def _validate_latent_cache_protocol(
     expected_seed: int,
     expected_backend: str,
     require_complete: bool,
+    expected_split_manifest: str | Path | None = None,
 ) -> tuple[str, ...]:
     cache_config = _latent_cache_run_config(path)
     protocol = _latent_cache_protocol(path)
     cache = LatentCacheDataset(path)
     actual_ids = tuple(cache.trajectory_ids())
-    if not require_complete:
+    if not require_complete and expected_split_manifest is None:
         _validate_latent_cache_split_seed(path, expected_seed=expected_seed)
         return actual_ids
     if cache_config is None or protocol is None:
@@ -606,6 +707,14 @@ def _validate_latent_cache_protocol(
         raise ValueError("real-data latent cache backend/seed does not match the consuming protocol")
     if data.get("split") != "all":
         raise ValueError(f"real-data latent cache must be embedded with data.split='all', got {data.get('split')!r}")
+    portable_actual_ids = _portable_trajectory_ids_from_values(actual_ids)
+    expected_splits = resolve_trajectory_splits(
+        portable_actual_ids,
+        seed=expected_seed,
+        manifest_path=expected_split_manifest,
+    )
+    if expected_split_manifest is not None and not data.get("split_manifest"):
+        raise ValueError("latent cache resolved config is missing its explicit split manifest")
     required = {
         "protocol_version",
         "artifact_role",
@@ -631,41 +740,61 @@ def _validate_latent_cache_protocol(
         raise ValueError("real-data latent cache protocol disagrees with its resolved config")
     selected_ids = _protocol_tuple(protocol, "selected_trajectory_ids")
     universe_ids = _protocol_tuple(protocol, "universe_trajectory_ids")
-    actual_manifest = _trajectory_manifest_sha256(actual_ids)
-    if selected_ids != actual_ids or universe_ids != actual_ids:
+    actual_manifest = _trajectory_manifest_sha256(portable_actual_ids)
+    if selected_ids != portable_actual_ids or universe_ids != portable_actual_ids:
         raise ValueError("real-data latent cache trajectory IDs differ from its stored protocol universe")
     if (
         protocol.get("trajectory_manifest_sha256") != actual_manifest
         or protocol.get("universe_manifest_sha256") != actual_manifest
     ):
         raise ValueError("real-data latent cache trajectory manifest is invalid")
+    if protocol.get("split_manifest_sha256") != expected_splits.manifest_sha256:
+        raise ValueError("latent cache split-manifest lineage does not match the consuming fold")
     latent_cache = cache_config.get("latent_cache")
     configured_encoder = latent_cache.get("encoder_checkpoint_path") if isinstance(latent_cache, Mapping) else None
     if not configured_encoder or protocol.get("encoder_checkpoint") != configured_encoder:
         raise ValueError("real-data latent cache does not identify one consistent encoder checkpoint")
+    configured_encoder_path = Path(str(configured_encoder))
+    if not configured_encoder_path.is_absolute():
+        configured_encoder_path = Path(path).resolve().parent / configured_encoder_path
     _validate_checkpoint_protocol(
-        str(configured_encoder),
+        configured_encoder_path,
         expected_seed=expected_seed,
         expected_backend=expected_backend,
         expected_universe_ids=actual_ids,
         expected_artifact_role="encoder_checkpoint",
         role="latent cache encoder checkpoint",
         require_complete=True,
+        expected_split_manifest=expected_split_manifest,
     )
     return actual_ids
 
 
 def _selected_trajectory_ids(config: ExperimentConfig) -> tuple[str, ...]:
-    dataset = build_dataset(config.data)
+    dataset = _build_universe_dataset(config)
     ids = tuple(dataset.trajectory_ids())
     return _selected_ids_from_universe(config, ids)
+
+
+def _build_universe_dataset(config: ExperimentConfig) -> Any:
+    data = config.data.model_copy(update={"split": "all"})
+    dataset = build_dataset(data)
+    requested = config.data.cyclone.trajectories if config.data.cyclone is not None else None
+    if requested:
+        actual = _portable_trajectory_ids(config, tuple(dataset.trajectory_ids()))
+        expected = _portable_trajectory_ids(config, tuple(str(value) for value in requested))
+        missing = tuple(value for value in expected if value not in set(actual))
+        if missing:
+            raise ValueError(f"explicit requested trajectories are missing from dataset: {', '.join(missing)}")
+        if set(actual) - set(expected):
+            raise ValueError("dataset returned trajectories outside the explicit requested trajectory list")
+    return dataset
 
 
 def _selected_ids_from_universe(config: ExperimentConfig, ids: tuple[str, ...]) -> tuple[str, ...]:
     if config.data.split == "all" or len(ids) < 2:
         return ids
-    split = split_trajectory_ids(ids, seed=config.data.seed)
-    return split[config.data.split]
+    return _trajectory_splits(config, ids).as_dict()[config.data.split]
 
 
 def _requires_complete_protocol(config: ExperimentConfig) -> bool:
@@ -681,7 +810,7 @@ def _normalization_stats(config: ExperimentConfig) -> NormalizationStats | None:
             mean=np.asarray(config.data.normalization.mean, dtype=np.float32),
             std=np.asarray(config.data.normalization.std, dtype=np.float32),
         )
-    dataset = build_dataset(config.data)
+    dataset = _build_universe_dataset(config)
     trajectory_ids = _selected_trajectory_ids(config)
     return estimate_dataset_stats(
         dataset,
@@ -693,7 +822,7 @@ def _normalization_stats(config: ExperimentConfig) -> NormalizationStats | None:
 def _trajectory_normalization_stats(config: ExperimentConfig, ids: tuple[str, ...]) -> dict[str, NormalizationStats]:
     if config.data.normalization.mode != "trajectory":
         return {}
-    dataset = build_dataset(config.data)
+    dataset = _build_universe_dataset(config)
     return {trajectory_id: estimate_trajectory_stats(dataset, trajectory_id) for trajectory_id in ids}
 
 
@@ -704,7 +833,7 @@ def _snapshot_batches(
     trajectory_ids: tuple[str, ...] | None = None,
     normalization_stats: NormalizationStats | None | object = _UNSET,
 ) -> Iterator[dict[str, Any]]:
-    dataset = build_dataset(config.data)
+    dataset = _build_universe_dataset(config)
     ids = _selected_trajectory_ids(config) if trajectory_ids is None else trajectory_ids
     stats = _normalization_stats(config) if normalization_stats is _UNSET else normalization_stats
     if stats is not None and not isinstance(stats, NormalizationStats):
@@ -759,7 +888,7 @@ def _init_encoder_state(config: ExperimentConfig, *, simsiam: bool = False) -> t
         if simsiam
         else build_encoder_with_diagnostics(config.model)
     )
-    dataset = build_dataset(config.data)
+    dataset = _build_universe_dataset(config)
     sample = dataset.get_snapshot(dataset.trajectory_ids()[0], 0)
     x = jnp.asarray(sample.x[None, ...], dtype=jnp.float32)
     rng = jax.random.PRNGKey(config.training.seed)
@@ -806,9 +935,9 @@ def train_encoder(config: ExperimentConfig, *, dry_run: bool = False) -> dict[st
     step_fn = make_pmap_encoder_train_step(plan.axis_name) if plan.uses_pmap else train_encoder_step
     eval_fn = make_pmap_encoder_eval_step(plan.axis_name) if plan.uses_pmap else eval_encoder_step
     batches = _snapshot_batches(config, repeat=True, normalization_stats=training_stats)
-    dataset = build_dataset(config.data)
+    dataset = _build_universe_dataset(config)
     universe_ids = tuple(dataset.trajectory_ids())
-    validation_ids = split_trajectory_ids(universe_ids, seed=config.data.seed)["val"] if len(universe_ids) > 1 else ()
+    validation_ids = _trajectory_splits(config, universe_ids).val if len(universe_ids) > 1 else ()
     if validation_ids and config.data.normalization.mode == "trajectory":
         raise ValueError("trajectory normalization cannot be fit independently on held-out validation trajectories")
     train_totals: dict[str, float] = {}
@@ -915,13 +1044,13 @@ def train_direct_diagnostics(config: ExperimentConfig, *, dry_run: bool = False)
     split. This command deliberately does not inspect the test split.
     """
 
-    dataset = build_dataset(config.data)
+    dataset = _build_universe_dataset(config)
     universe_ids = tuple(dataset.trajectory_ids())
     if len(universe_ids) < 2:
         raise ValueError("direct diagnostic baseline requires at least two trajectories for held-out validation")
-    splits = split_trajectory_ids(universe_ids, seed=config.data.seed)
-    train_ids = splits["train"]
-    validation_ids = splits["val"]
+    splits = _trajectory_splits(config, universe_ids)
+    train_ids = splits.train
+    validation_ids = splits.val
     if not train_ids or not validation_ids:
         raise ValueError("direct diagnostic baseline requires non-empty train and validation trajectory splits")
     sample = dataset.get_snapshot(train_ids[0], 0)
@@ -1144,6 +1273,7 @@ def _encoder_params_for_embedding(
         expected_artifact_role="encoder_checkpoint",
         role="encoder checkpoint",
         require_complete=_requires_complete_protocol(config),
+        expected_split_manifest=config.data.split_manifest,
     )
     payload = load_checkpoint(ckpt)
     return model, _encoder_apply_params(payload["params"]), ckpt.resolve()
@@ -1184,6 +1314,25 @@ def _embedding_normalization(
     return _load_normalization_stats(artifact), {}, metadata
 
 
+def _latent_cache_config_yaml(config: ExperimentConfig, *, encoder_checkpoint: str) -> str:
+    """Serialize portable cache provenance without machine-specific roots."""
+
+    payload = config.model_dump(mode="json")
+    data = payload["data"]
+    data["root"] = None
+    cyclone = data.get("cyclone")
+    if isinstance(cyclone, dict) and isinstance(cyclone.get("trajectories"), list):
+        cyclone["trajectories"] = [Path(value).name for value in cyclone["trajectories"]]
+    payload["output_dir"] = Path(str(payload["output_dir"])).name
+    latent_cache = payload["latent_cache"]
+    latent_cache["path"] = Path(str(latent_cache["path"])).name if latent_cache.get("path") else None
+    latent_cache["encoder_checkpoint_path"] = encoder_checkpoint
+    latent_cache["sequence_checkpoint_path"] = None
+    if data.get("split_manifest"):
+        data["split_manifest"] = Path(str(data["split_manifest"])).name
+    return yaml.safe_dump(payload, sort_keys=False)
+
+
 def _encoder_apply_params(params: Any) -> Any:
     """Return params compatible with ``EncoderWithDiagnostics`` apply.
 
@@ -1206,8 +1355,9 @@ def _diagnostic_params_from_encoder_params(params: Any) -> Any | None:
 
 
 def embed_dataset(config: ExperimentConfig, *, dry_run: bool = False) -> dict[str, Any]:
-    dataset = build_dataset(config.data)
+    dataset = _build_universe_dataset(config)
     trajectory_ids = tuple(dataset.trajectory_ids())
+    _trajectory_splits(config, trajectory_ids)
     if dry_run:
         return {
             "dry_run": True,
@@ -1222,8 +1372,12 @@ def embed_dataset(config: ExperimentConfig, *, dry_run: bool = False) -> dict[st
         config, expected_universe_ids=trajectory_ids
     )
     cache_path = Path(config.latent_cache.path) if config.latent_cache.path else out / "latent_cache.h5"
-    encoder_checkpoint_path = str(encoder_checkpoint)
+    encoder_checkpoint_path = os.path.relpath(encoder_checkpoint, start=cache_path.resolve().parent)
     stats, trajectory_stats, normalization_lineage = _embedding_normalization(config, encoder_checkpoint)
+    if "snapshot_normalization_stats" in normalization_lineage:
+        normalization_lineage["snapshot_normalization_stats"] = Path(
+            str(normalization_lineage["snapshot_normalization_stats"])
+        ).name
     cache_protocol = {
         "artifact_role": "latent_cache",
         "encoder_checkpoint": encoder_checkpoint_path,
@@ -1236,14 +1390,17 @@ def embed_dataset(config: ExperimentConfig, *, dry_run: bool = False) -> dict[st
             universe_trajectory_ids=trajectory_ids,
         ),
     }
+    if cache_protocol.get("split_manifest_path"):
+        cache_protocol["split_manifest_path"] = Path(str(cache_protocol["split_manifest_path"])).name
     writer = LatentCacheWriter(
         cache_path,
         latent_dim=config.model.encoder.latent_dim,
-        config_yaml=config_to_yaml(config),
+        config_yaml=_latent_cache_config_yaml(config, encoder_checkpoint=encoder_checkpoint_path),
         encoder_checkpoint_path=encoder_checkpoint_path,
         protocol_metadata=cache_protocol,
     )
     for trajectory_id in trajectory_ids:
+        portable_trajectory_id = _portable_trajectory_ids(config, (trajectory_id,))[0]
         snapshots = []
         flux_rows = []
         spectra_rows: dict[str, list[np.ndarray]] = {key: [] for key in config.data.target_spectra}
@@ -1270,7 +1427,7 @@ def embed_dataset(config: ExperimentConfig, *, dry_run: bool = False) -> dict[st
             batch_size=config.data.batch_size,
         )
         writer.write_trajectory(
-            trajectory_id,
+            portable_trajectory_id,
             z,
             physical_time=np.asarray(times, dtype=np.float32),
             flux=np.asarray(flux_rows, dtype=np.float32) if flux_rows else None,
@@ -1304,13 +1461,16 @@ def _latent_cache_for(config: ExperimentConfig) -> Path:
         expected_seed=config.data.seed,
         expected_backend=config.data.backend,
         require_complete=_requires_complete_protocol(config),
+        expected_split_manifest=config.data.split_manifest,
     )
     if _requires_complete_protocol(config) and config.latent_cache.encoder_checkpoint_path:
         protocol = _latent_cache_protocol(candidate)
         protocol_encoder = protocol.get("encoder_checkpoint") if isinstance(protocol, Mapping) else None
-        if not protocol_encoder or Path(str(protocol_encoder)).resolve() != Path(
-            config.latent_cache.encoder_checkpoint_path
-        ).resolve():
+        protocol_encoder_path = (
+            (candidate.resolve().parent / str(protocol_encoder)).resolve() if protocol_encoder else None
+        )
+        configured_encoder_path = Path(config.latent_cache.encoder_checkpoint_path).resolve()
+        if protocol_encoder_path != configured_encoder_path:
             raise ValueError("configured encoder checkpoint does not match the real-data latent cache lineage")
     return candidate
 
@@ -1319,7 +1479,7 @@ def _selected_cache_trajectory_ids(cache: LatentCacheDataset, config: Experiment
     ids = _cache_trajectory_ids(cache, config)
     if config.data.split == "all" or len(ids) < 2:
         return ids
-    return split_trajectory_ids(ids, seed=config.data.seed)[config.data.split]
+    return _trajectory_splits(config, ids).as_dict()[config.data.split]
 
 
 def _cache_trajectory_ids(cache: LatentCacheDataset, config: ExperimentConfig) -> tuple[str, ...]:
@@ -1368,7 +1528,7 @@ def _cache_train_eval_ids(
     ids = _cache_trajectory_ids(cache, config)
     if len(ids) < 2:
         raise ValueError("flux-head validation requires at least two cached trajectories")
-    splits = split_trajectory_ids(ids, seed=config.data.seed)
+    splits = _trajectory_splits(config, ids).as_dict()
     eval_split = config.data.split
     eval_ids = ids if eval_split == "all" else splits[eval_split]
     if not splits["train"]:
@@ -1387,7 +1547,7 @@ def _latent_normalization_trajectory_ids(cache: LatentCacheDataset, config: Expe
             "latent normalization must be fit on the canonical training split; "
             "latent_normalization_split='all'/'selected' can leak held-out trajectories"
         )
-    return split_trajectory_ids(ids, seed=config.data.seed)["train"]
+    return _trajectory_splits(config, ids).train
 
 
 def _latent_normalization_stats(
@@ -1511,6 +1671,66 @@ def _shape_correlation(pred: jax.Array, target: jax.Array, *, eps: float) -> jax
     return numerator / (pred_norm * target_norm)
 
 
+def _diagnostic_reference_error_summary(
+    pred: jax.Array,
+    target: jax.Array,
+    trajectory_ids: list[str],
+    *,
+    prefix: str,
+    eps: float,
+) -> dict[str, np.ndarray]:
+    """Trajectory-balanced errors for a named diagnostic reference.
+
+    The explicit prefix prevents latent-state persistence decoded by a learned
+    head from being confused with persistence of the observed diagnostic.
+    """
+
+    pred = jnp.asarray(pred)
+    target = jnp.asarray(target)
+    if pred.shape != target.shape or pred.ndim != 3:
+        raise ValueError(f"diagnostic arrays must share shape [N, T, D], got {pred.shape} and {target.shape}")
+    error = pred - target
+    mse_by_trajectory = _trajectory_values_by_step(jnp.mean(jnp.square(error), axis=2), trajectory_ids)
+    mae_by_trajectory = _trajectory_values_by_step(jnp.mean(jnp.abs(error), axis=2), trajectory_ids)
+    relative_l2_by_trajectory = _trajectory_relative_l2_by_step(error, target, trajectory_ids, eps=eps)
+    mse_by_step = jnp.mean(mse_by_trajectory, axis=0)
+    mae_by_step = jnp.mean(mae_by_trajectory, axis=0)
+    relative_l2_by_step = jnp.mean(relative_l2_by_trajectory, axis=0)
+    return {
+        f"{prefix}_mse_by_step": np.asarray(jax.device_get(mse_by_step)),
+        f"{prefix}_mse_std_by_step": np.asarray(jax.device_get(jnp.std(mse_by_trajectory, axis=0))),
+        f"{prefix}_rmse_by_step": np.asarray(jax.device_get(jnp.sqrt(mse_by_step))),
+        f"{prefix}_rmse_by_trajectory": np.asarray(
+            jax.device_get(jnp.sqrt(jnp.mean(mse_by_trajectory, axis=1)))
+        ),
+        f"{prefix}_mae_by_step": np.asarray(jax.device_get(mae_by_step)),
+        f"{prefix}_relative_l2_by_step": np.asarray(jax.device_get(relative_l2_by_step)),
+        f"{prefix}_mse": np.asarray(jax.device_get(jnp.mean(mse_by_step))),
+        f"{prefix}_rmse": np.asarray(jax.device_get(jnp.sqrt(jnp.mean(mse_by_step)))),
+        f"{prefix}_mae": np.asarray(jax.device_get(jnp.mean(mae_by_step))),
+        f"{prefix}_relative_l2": np.asarray(jax.device_get(jnp.mean(relative_l2_by_step))),
+    }
+
+
+def _diagnostic_reference_shape_summary(
+    pred: jax.Array,
+    target: jax.Array,
+    trajectory_ids: list[str],
+    *,
+    prefix: str,
+    eps: float,
+) -> dict[str, np.ndarray]:
+    shape_by_trajectory = _trajectory_values_by_step(_shape_correlation(pred, target, eps=eps), trajectory_ids)
+    shape_by_step = jnp.mean(shape_by_trajectory, axis=0)
+    return {
+        f"{prefix}_shape_corr_by_step": np.asarray(jax.device_get(shape_by_step)),
+        f"{prefix}_shape_corr_std_by_step": np.asarray(
+            jax.device_get(jnp.std(shape_by_trajectory, axis=0))
+        ),
+        f"{prefix}_shape_corr": np.asarray(jax.device_get(jnp.mean(shape_by_step))),
+    }
+
+
 def _sequence_batches(
     config: ExperimentConfig,
     cache_path: Path,
@@ -1585,6 +1805,7 @@ def train_sequence(config: ExperimentConfig, *, dry_run: bool = False) -> dict[s
     train_config = _config_with_parallel_optimizer(config, plan)
     state, _model = _init_sequence_state(train_config)
     if dry_run:
+        _validate_explicit_manifest_against_cache(config)
         return {
             "dry_run": True,
             "latent_cache": config.latent_cache.path,
@@ -1630,7 +1851,7 @@ def train_sequence(config: ExperimentConfig, *, dry_run: bool = False) -> dict[s
     eval_fn = make_pmap_sequence_eval_step(plan.axis_name) if plan.uses_pmap else eval_sequence_step
     batches = _sequence_batches(train_config, cache_path, repeat=True, latent_stats=latent_stats)
     universe_ids = tuple(cache.trajectory_ids())
-    validation_ids = split_trajectory_ids(universe_ids, seed=config.data.seed)["val"] if len(universe_ids) > 1 else ()
+    validation_ids = _trajectory_splits(config, universe_ids).val if len(universe_ids) > 1 else ()
     train_totals: dict[str, float] = {}
     train_examples = 0
     best_metric = float("inf")
@@ -1705,7 +1926,7 @@ def train_sequence(config: ExperimentConfig, *, dry_run: bool = False) -> dict[s
         "best_validation_metric": None if not np.isfinite(best_metric) else best_metric,
         "latent_cache": str(cache_path),
         "latent_cache_sha256": _sha256_file(cache_path),
-        "encoder_checkpoint": str(encoder_checkpoint),
+        "encoder_checkpoint": _relative_artifact_path(encoder_checkpoint),
         "encoder_checkpoint_sha256": _sha256_file(_checkpoint_pickle(encoder_checkpoint)),
         "latent_normalization_sha256": _sha256_file(latent_stats_path) if latent_stats_path else None,
         "last_minibatch": {k: float(v) for k, v in metrics.items()},
@@ -1730,6 +1951,7 @@ def train_sequence(config: ExperimentConfig, *, dry_run: bool = False) -> dict[s
 
 def evaluate_flux_head(config: ExperimentConfig, *, dry_run: bool = False) -> dict[str, Any]:
     if dry_run:
+        _validate_explicit_manifest_against_cache(config)
         return {
             "dry_run": True,
             "latent_cache": config.latent_cache.path,
@@ -1755,7 +1977,9 @@ def evaluate_flux_head(config: ExperimentConfig, *, dry_run: bool = False) -> di
     summary["configured_trajectories"] = list(configured_ids)
     summary["num_configured_trajectories"] = len(configured_ids)
     summary["latent_cache"] = str(cache_path)
-    summary["encoder_checkpoint"] = str(encoder_checkpoint) if encoder_checkpoint else None
+    summary["encoder_checkpoint"] = (
+        _relative_artifact_path(encoder_checkpoint) if encoder_checkpoint else None
+    )
     summary.update(
         _protocol_fields(
             config,
@@ -1786,6 +2010,7 @@ def evaluate_flux_head(config: ExperimentConfig, *, dry_run: bool = False) -> di
 
 def plot_representation(config: ExperimentConfig, *, dry_run: bool = False) -> dict[str, Any]:
     if dry_run:
+        _validate_explicit_manifest_against_cache(config)
         return {
             "dry_run": True,
             "latent_cache": config.latent_cache.path,
@@ -1796,7 +2021,7 @@ def plot_representation(config: ExperimentConfig, *, dry_run: bool = False) -> d
     cache_path = _latent_cache_for(config)
     encoder_checkpoint = _optional_cache_encoder_lineage(config, cache_path)
     cache = LatentCacheDataset(cache_path)
-    configured_ids = _cache_trajectory_ids(cache, config)
+    selected_ids = _selected_cache_trajectory_ids(cache, config)
     out = _output_dir(config)
     write_run_metadata(out, config=config.model_dump(mode="json"))
     (out / "config_resolved.yaml").write_text(config_to_yaml(config), encoding="utf-8")
@@ -1804,17 +2029,19 @@ def plot_representation(config: ExperimentConfig, *, dry_run: bool = False) -> d
         cache,
         out,
         split_seed=config.data.seed,
-        trajectory_ids=configured_ids,
+        trajectory_ids=selected_ids,
         perplexities=config.evaluation.tsne_perplexities,
         tsne_max_iter=config.evaluation.tsne_max_iter,
         max_points=config.evaluation.representation_max_points,
     )
     summary["latent_cache"] = str(cache_path)
-    summary["encoder_checkpoint"] = str(encoder_checkpoint) if encoder_checkpoint else None
+    summary["encoder_checkpoint"] = (
+        _relative_artifact_path(encoder_checkpoint) if encoder_checkpoint else None
+    )
     summary.update(
         _protocol_fields(
             config,
-            configured_ids,
+            selected_ids,
             aggregation="point_level_projection",
             universe_trajectory_ids=tuple(cache.trajectory_ids()),
         )
@@ -1832,12 +2059,15 @@ def plot_representation(config: ExperimentConfig, *, dry_run: bool = False) -> d
 
 
 def evaluate_rollout(config: ExperimentConfig, *, dry_run: bool = False) -> dict[str, Any]:
+    baseline_mode = config.evaluation.baseline_mode
     if dry_run:
+        _validate_explicit_manifest_against_cache(config)
         return {
             "dry_run": True,
             "latent_cache": config.latent_cache.path,
             "sequence_checkpoint": config.latent_cache.sequence_checkpoint_path,
             "rollout_steps": config.evaluation.rollout_steps,
+            "baseline_mode": baseline_mode,
         }
 
     cache_path = _latent_cache_for(config)
@@ -1845,8 +2075,9 @@ def evaluate_rollout(config: ExperimentConfig, *, dry_run: bool = False) -> dict
     cache = LatentCacheDataset(cache_path)
     configured_ids = _cache_trajectory_ids(cache, config)
     selected_ids = _selected_cache_trajectory_ids(cache, config)
-    use_persistence = config.latent_cache.use_persistence_baseline
-    latent_stats = _latent_normalization_stats(cache, config) if use_persistence else None
+    use_latent_persistence = baseline_mode == "latent_state_persistence_decoded"
+    use_observed_persistence = baseline_mode == "observed_diagnostic_persistence"
+    latent_stats = _latent_normalization_stats(cache, config) if use_latent_persistence else None
     model = None
     params = None
     requested_metrics = set(config.evaluation.metrics)
@@ -1870,13 +2101,14 @@ def evaluate_rollout(config: ExperimentConfig, *, dry_run: bool = False) -> dict
             expected_artifact_role="encoder_checkpoint",
             role="encoder checkpoint",
             require_complete=_requires_complete_protocol(config),
+            expected_split_manifest=config.data.split_manifest,
         )
         encoder_params = load_checkpoint(encoder_checkpoint)["params"]
         diagnostic_params = _diagnostic_params_from_encoder_params(encoder_params)
         if diagnostic_params is None and diagnostic_metrics_requested:
             raise ValueError("diagnostic metrics requested but cache-lineage encoder has no diagnostic_heads params")
     diagnostic_heads_loaded = diagnostic_model is not None and diagnostic_params is not None
-    if not use_persistence:
+    if baseline_mode == "none":
         if config.model.sequence is None or config.latent_cache.sequence_checkpoint_path is None:
             raise ValueError("sequence model and checkpoint are required unless persistence baseline is enabled")
         _validate_checkpoint_protocol(
@@ -1889,6 +2121,7 @@ def evaluate_rollout(config: ExperimentConfig, *, dry_run: bool = False) -> dict
             require_complete=_requires_complete_protocol(config),
             expected_cache_path=cache_path,
             expected_encoder_checkpoint=encoder_checkpoint,
+            expected_split_manifest=config.data.split_manifest,
         )
         latent_stats = _sequence_checkpoint_latent_stats(config.latent_cache.sequence_checkpoint_path)
         model = build_sequence_model(config.model.sequence)
@@ -1897,7 +2130,9 @@ def evaluate_rollout(config: ExperimentConfig, *, dry_run: bool = False) -> dict
     targets = []
     rollout_trajectory_ids: list[str] = []
     flux_targets = []
+    flux_last_observed = []
     spectra_targets: dict[str, list[np.ndarray]] = {key: [] for key in config.data.target_spectra}
+    spectra_last_observed: dict[str, list[np.ndarray]] = {key: [] for key in config.data.target_spectra}
     for trajectory_id in selected_ids:
         total = cache.num_timesteps(trajectory_id)
         required = config.data.context_length + config.evaluation.rollout_steps
@@ -1912,8 +2147,13 @@ def evaluate_rollout(config: ExperimentConfig, *, dry_run: bool = False) -> dict
             )
             context_model = _normalize_latents(context, latent_stats)
             context_b = jnp.asarray(context_model[None, ...], dtype=jnp.float32)
-            if use_persistence:
+            if use_latent_persistence:
                 pred = persistence_rollout(context_b, config.evaluation.rollout_steps)
+            elif use_observed_persistence:
+                # Observed persistence has no latent forecast. True future latents
+                # are carried only to compute the diagnostic-head oracle reference;
+                # latent rollout metrics are removed below.
+                pred = jnp.asarray(target[None, ...], dtype=jnp.float32)
             else:
                 if model is None or params is None:
                     raise AssertionError("sequence model state was not initialized")
@@ -1927,11 +2167,18 @@ def evaluate_rollout(config: ExperimentConfig, *, dry_run: bool = False) -> dict
             preds.append(np.asarray(jax.device_get(pred), dtype=np.float32))
             targets.append(target[None, ...].astype(np.float32))
             rollout_trajectory_ids.append(trajectory_id)
+            last_observed = cache.get_latent(trajectory_id, start + config.data.context_length - 1).targets
             if diagnostics.flux is not None:
                 flux_targets.append(np.asarray(diagnostics.flux[None, ...], dtype=np.float32))
+                if last_observed.flux is not None:
+                    flux_last_observed.append(np.asarray(last_observed.flux[None, ...], dtype=np.float32))
             for key in spectra_targets:
                 if key in diagnostics.spectra:
                     spectra_targets[key].append(np.asarray(diagnostics.spectra[key][None, ...], dtype=np.float32))
+                    if key in last_observed.spectra:
+                        spectra_last_observed[key].append(
+                            np.asarray(last_observed.spectra[key][None, ...], dtype=np.float32)
+                        )
     if not preds:
         raise ValueError("no valid rollout windows found")
     pred_all = jnp.asarray(np.concatenate(preds, axis=0))
@@ -1941,10 +2188,59 @@ def evaluate_rollout(config: ExperimentConfig, *, dry_run: bool = False) -> dict
     flux_metrics_computed = False
     spectra_metrics_computed = False
     diagnostic_samples: dict[str, np.ndarray] = {}
+    sample_windows = min(16, int(pred_all.shape[0]))
+    if len(flux_targets) == len(preds) and len(flux_last_observed) == len(preds):
+        observed_flux_target = jnp.asarray(np.concatenate(flux_targets, axis=0))
+        last_flux = jnp.asarray(np.concatenate(flux_last_observed, axis=0))
+        observed_flux_pred = observed_diagnostic_persistence(last_flux, config.evaluation.rollout_steps)
+        summary.update(
+            _diagnostic_reference_error_summary(
+                observed_flux_pred,
+                observed_flux_target,
+                rollout_trajectory_ids,
+                prefix="observed_diagnostic_persistence_flux",
+                eps=config.loss.spectra_epsilon,
+            )
+        )
+        diagnostic_samples["observed_diagnostic_persistence_flux_pred"] = np.asarray(
+            jax.device_get(observed_flux_pred[:sample_windows]), dtype=np.float32
+        )
+    for key, rows in spectra_targets.items():
+        if len(rows) != len(preds) or len(spectra_last_observed[key]) != len(preds):
+            continue
+        observed_spectra_target = jnp.asarray(np.concatenate(rows, axis=0))
+        last_spectra = jnp.asarray(np.concatenate(spectra_last_observed[key], axis=0))
+        observed_spectra_pred = observed_diagnostic_persistence(last_spectra, config.evaluation.rollout_steps)
+        observed_prefix = f"observed_diagnostic_persistence_spectra_{key}"
+        summary.update(
+            _diagnostic_reference_error_summary(
+                observed_spectra_pred,
+                observed_spectra_target,
+                rollout_trajectory_ids,
+                prefix=observed_prefix,
+                eps=config.loss.spectra_epsilon,
+            )
+        )
+        summary.update(
+            _diagnostic_reference_shape_summary(
+                observed_spectra_pred,
+                observed_spectra_target,
+                rollout_trajectory_ids,
+                prefix=observed_prefix,
+                eps=config.loss.spectra_epsilon,
+            )
+        )
     if diagnostic_model is not None and diagnostic_params is not None:
         flat_pred = pred_all.reshape((-1, pred_all.shape[-1]))
-        diagnostics = diagnostic_model.apply({"params": diagnostic_params}, flat_pred, train=False)
-        sample_windows = min(16, int(pred_all.shape[0]))
+        diagnostics = cast(
+            DiagnosticPredictions,
+            diagnostic_model.apply({"params": diagnostic_params}, flat_pred, train=False),
+        )
+        flat_target = target_all.reshape((-1, target_all.shape[-1]))
+        diagnostic_head_oracle = cast(
+            DiagnosticPredictions,
+            diagnostic_model.apply({"params": diagnostic_params}, flat_target, train=False),
+        )
         if diagnostics.flux is not None and len(flux_targets) == len(preds):
             flux_target = jnp.asarray(np.concatenate(flux_targets, axis=0))
             flux_pred = diagnostics.flux.reshape(flux_target.shape)
@@ -1994,6 +2290,20 @@ def evaluate_rollout(config: ExperimentConfig, *, dry_run: bool = False) -> dict
                 jax.device_get(flux_target[:sample_windows]),
                 dtype=np.float32,
             )
+            if diagnostic_head_oracle.flux is not None:
+                oracle_flux_pred = diagnostic_head_oracle.flux.reshape(flux_target.shape)
+                summary.update(
+                    _diagnostic_reference_error_summary(
+                        oracle_flux_pred,
+                        flux_target,
+                        rollout_trajectory_ids,
+                        prefix="diagnostic_head_oracle_flux",
+                        eps=config.loss.spectra_epsilon,
+                    )
+                )
+                diagnostic_samples["diagnostic_head_oracle_flux_pred"] = np.asarray(
+                    jax.device_get(oracle_flux_pred[:sample_windows]), dtype=np.float32
+                )
             flux_metrics_computed = True
         elif flux_metrics_requested:
             diagnostic_warnings.append("flux metrics requested but flux predictions or targets are unavailable")
@@ -2058,6 +2368,27 @@ def evaluate_rollout(config: ExperimentConfig, *, dry_run: bool = False) -> dict
                     jax.device_get(spectra_target[:sample_windows]),
                     dtype=np.float32,
                 )
+                if key in diagnostic_head_oracle.spectra:
+                    oracle_spectra_pred = diagnostic_head_oracle.spectra[key].reshape(spectra_target.shape)
+                    oracle_prefix = f"diagnostic_head_oracle_spectra_{key}"
+                    summary.update(
+                        _diagnostic_reference_error_summary(
+                            oracle_spectra_pred,
+                            spectra_target,
+                            rollout_trajectory_ids,
+                            prefix=oracle_prefix,
+                            eps=config.loss.spectra_epsilon,
+                        )
+                    )
+                    summary.update(
+                        _diagnostic_reference_shape_summary(
+                            oracle_spectra_pred,
+                            spectra_target,
+                            rollout_trajectory_ids,
+                            prefix=oracle_prefix,
+                            eps=config.loss.spectra_epsilon,
+                        )
+                    )
                 spectra_mse_by_trajectory.append(by_trajectory)
                 spectra_log_mse_by_trajectory.append(log_by_trajectory)
                 spectra_relative_l2_by_trajectory.append(relative_l2_by_trajectory)
@@ -2094,8 +2425,49 @@ def evaluate_rollout(config: ExperimentConfig, *, dry_run: bool = False) -> dict
     summary["num_selected_trajectories"] = np.asarray(len(selected_ids), dtype=np.int32)
     summary["num_rollout_windows"] = np.asarray(len(preds), dtype=np.int32)
     summary["latent_cache"] = str(cache_path)
-    summary["encoder_checkpoint"] = str(encoder_checkpoint)
-    summary["sequence_checkpoint"] = config.latent_cache.sequence_checkpoint_path or "persistence_baseline"
+    summary["encoder_checkpoint"] = _relative_artifact_path(encoder_checkpoint)
+    if use_observed_persistence:
+        for suffix in (
+            "mse_by_step",
+            "mse_std_by_step",
+            "mae_by_step",
+            "mae_std_by_step",
+            "relative_l2_by_step",
+            "relative_l2_std_by_step",
+            "cosine_by_step",
+            "cosine_std_by_step",
+            "mse",
+            "mae",
+            "relative_l2",
+            "cosine",
+            "stable",
+        ):
+            summary.pop(suffix, None)
+        for key in tuple(summary):
+            if key.startswith(("flux_", "spectra_")):
+                summary.pop(key)
+        observed_flux_prefix = "observed_diagnostic_persistence_flux_"
+        for key, value in tuple(summary.items()):
+            if key.startswith(observed_flux_prefix):
+                summary[key.removeprefix("observed_diagnostic_persistence_")] = value
+        diagnostic_samples.pop("flux_pred", None)
+        for key in tuple(diagnostic_samples):
+            if key.endswith("_pred") and not key.startswith(
+                ("observed_diagnostic_persistence_", "diagnostic_head_oracle_")
+            ):
+                diagnostic_samples.pop(key)
+        # These flags describe the learned diagnostic forecast, which is
+        # intentionally absent for an observed persistence baseline.  Keep
+        # them explicit instead of deleting them with the ``flux_*`` and
+        # ``spectra_*`` metric keys above.
+        summary["flux_metrics_computed"] = np.asarray(False)
+        summary["spectra_metrics_computed"] = np.asarray(False)
+    summary["rollout_method"] = (
+        baseline_mode if baseline_mode != "none" else "learned_sequence_model"
+    )
+    summary["sequence_checkpoint"] = (
+        config.latent_cache.sequence_checkpoint_path or baseline_mode
+    )
     summary["rollout_horizon"] = np.asarray(config.evaluation.rollout_steps, dtype=np.int32)
     summary.update(
         _protocol_fields(
@@ -2118,7 +2490,10 @@ def evaluate_rollout(config: ExperimentConfig, *, dry_run: bool = False) -> dict
         result["diagnostic_samples_npz"] = str(diagnostic_samples_path)
     if plots:
         result["plots"] = {key: str(path) for key, path in plots.items()}
-        result["plot"] = str(plots["latent_mse"])
+        # Persistence baselines intentionally remove latent metrics, so there
+        # may be no latent-MSE plot to use as the historical compatibility alias.
+        primary_plot = plots.get("latent_mse") or next(iter(plots.values()))
+        result["plot"] = str(primary_plot)
     logger = _metrics_logger(out, config)
     if logger.wandb_status().get("requested"):
         result["wandb"] = logger.wandb_status()

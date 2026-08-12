@@ -10,6 +10,7 @@ from typing import Any
 import h5py
 
 from gk_surrogate.config.schema import ExperimentConfig
+from gk_surrogate.data.split import resolve_trajectory_splits, split_manifest_assigned_ids
 
 _UNRESOLVED_ENV_RE = re.compile(r"\$(?:\{[^}]+\}|\([^)]+\)|[A-Za-z_][A-Za-z0-9_]*)")
 
@@ -19,6 +20,9 @@ def validate_config(config: ExperimentConfig, *, command: str | None = None) -> 
 
     data = config.data
     _reject_unresolved_paths(config)
+    if data.split_manifest:
+        assigned_ids = split_manifest_assigned_ids(data.split_manifest)
+        resolve_trajectory_splits(assigned_ids, seed=data.seed, manifest_path=data.split_manifest)
     if config.loss.flux_weight > 0 and not data.target_flux:
         msg = "flux loss is enabled but data.target_flux is false"
         raise ValueError(msg)
@@ -31,6 +35,11 @@ def validate_config(config: ExperimentConfig, *, command: str | None = None) -> 
     if config.loss.simsiam_weight > 0 and config.model.simsiam is None:
         msg = "simsiam loss is enabled but model.simsiam is missing"
         raise ValueError(msg)
+    training_commands = {"train-encoder", "train-direct-diagnostics", "train-sequence"}
+    if command in training_commands and data.split != "train":
+        raise ValueError(f"{command} requires data.split='train'")
+    if command == "embed-dataset" and data.split != "all":
+        raise ValueError("embed-dataset requires data.split='all' so every fold role is cached")
     if command == "train-sequence" and config.model.sequence is None:
         msg = "train-sequence requires model.sequence"
         raise ValueError(msg)
@@ -52,12 +61,12 @@ def validate_config(config: ExperimentConfig, *, command: str | None = None) -> 
     if command == "plot-representation" and not data.target_flux:
         msg = "plot-representation requires data.target_flux"
         raise ValueError(msg)
-    if (
-        command == "evaluate-rollout"
-        and not config.latent_cache.sequence_checkpoint_path
-        and not config.latent_cache.use_persistence_baseline
-    ):
-        msg = "evaluate-rollout requires latent_cache.sequence_checkpoint_path or persistence baseline"
+    baseline_mode = config.evaluation.baseline_mode
+    if command == "evaluate-rollout" and not config.latent_cache.sequence_checkpoint_path and baseline_mode == "none":
+        msg = (
+            "evaluate-rollout requires latent_cache.sequence_checkpoint_path or "
+            "evaluation.baseline_mode"
+        )
         raise ValueError(msg)
     _validate_model_data_contract(config, command=command)
     _validate_existing_latent_cache(config, command=command)

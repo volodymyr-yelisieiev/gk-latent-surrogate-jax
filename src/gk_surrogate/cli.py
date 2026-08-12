@@ -80,6 +80,8 @@ def _add_common_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--override", action="append", default=[], help="Dotted key override, key=value.")
     parser.add_argument("--dry-run", action="store_true", help="Validate and inspect without training writes.")
     parser.add_argument("--seed", type=int, default=None, help="Override data and training seed.")
+    parser.add_argument("--training-seed", type=int, default=None, help="Override only the training seed.")
+    parser.add_argument("--split-manifest", default=None, help="Exact train/val/test trajectory manifest.")
     parser.add_argument("--output-dir", default=None, help="Override output directory.")
 
 
@@ -87,6 +89,10 @@ def _dispatch(args: argparse.Namespace) -> int:
     overrides = list(args.override)
     if args.seed is not None:
         overrides.extend([f"data.seed={args.seed}", f"training.seed={args.seed}"])
+    if args.training_seed is not None:
+        overrides.append(f"training.seed={args.training_seed}")
+    if args.split_manifest is not None:
+        overrides.append(f"data.split_manifest={args.split_manifest}")
     if args.output_dir is not None:
         overrides.append(f"output_dir={args.output_dir}")
         if args.command == "embed-dataset":

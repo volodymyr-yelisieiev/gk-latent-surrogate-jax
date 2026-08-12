@@ -82,4 +82,3 @@ latent_cache:
   path: outputs/smoke_real_embed_dataset/latent_cache.h5
   encoder_checkpoint_path: outputs/smoke_real_encoder_flux/checkpoints/step_000002
   sequence_checkpoint_path: outputs/smoke_real_sequence/checkpoints/step_000002
-  use_persistence_baseline: false

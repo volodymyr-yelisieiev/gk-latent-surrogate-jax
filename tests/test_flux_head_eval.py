@@ -102,11 +102,11 @@ def test_flux_head_pipeline_honors_configured_cache_trajectories(repo_root, tmp_
     monkeypatch.setattr(pipeline_module, "_requires_complete_protocol", lambda _config: False)
     monkeypatch.setenv("GK_CYCLONE_DATA_ROOT", "/tmp/gk-cyclone-root")
     for index in range(4):
-        monkeypatch.setenv(f"GK_SMALL_VALIDATION_TRAJ_{index}", f"traj-{index}")
+        monkeypatch.setenv(f"GK_VALIDATION_TRAJ_{index}", f"traj-{index}")
     cache_path = tmp_path / "latent_cache.h5"
     _write_linear_flux_cache(cache_path)
     config = load_config(
-        repo_root / "configs/experiment/server_evaluate_flux_head_small.yaml",
+        repo_root / "configs/experiment/server_evaluate_observed_persistence_medium.yaml",
         command="evaluate-flux-head",
     )
     config = config.model_copy(
@@ -114,6 +114,7 @@ def test_flux_head_pipeline_honors_configured_cache_trajectories(repo_root, tmp_
             "output_dir": str(tmp_path / "eval_subset"),
             "data": config.data.model_copy(
                 update={
+                    "split": "val",
                     "cyclone": config.data.cyclone.model_copy(
                         update={"trajectories": ("traj-0", "traj-1", "traj-2")}
                     )
@@ -161,7 +162,7 @@ def test_flux_head_pipeline_honors_configured_cache_trajectories(repo_root, tmp_
             "data": config.data.model_copy(
                 update={
                     "cyclone": config.data.cyclone.model_copy(
-                        update={"trajectories": ("${GK_SMALL_VALIDATION_TRAJ_0}", "traj-1", "traj-2")}
+                        update={"trajectories": ("${GK_VALIDATION_TRAJ_0}", "traj-1", "traj-2")}
                     )
                 }
             )

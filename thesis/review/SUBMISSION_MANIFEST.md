@@ -27,7 +27,10 @@ submission.
   `git bundle verify repository-source.bundle`; its existence is not asserted by this manifest.
 - JKU template: upstream release `v2.2`, commit
   `79d78bd9fd8b69d5635a0d419536827823772b59`.
-- Main evidence paths and hashes are recorded in Appendix B of the thesis.
+- Main historical artifact paths and hashes are recorded in Appendix B of the thesis.
+- No public W&B or evidence-release URL is claimed. The historical W&B records were deleted
+  during the audit; a future accepted protocol must create and audit a fresh sanitized manifest
+  before publication.
 
 ## Submission blockers
 

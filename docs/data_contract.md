@@ -90,5 +90,7 @@ trajectories/<trajectory_id>/flux
 trajectories/<trajectory_id>/spectra/<name>
 ```
 
-Sequence training and rollout evaluation consume `latent_cache.path`. Rollout evaluation
-uses `latent_cache.sequence_checkpoint_path` unless `use_persistence_baseline` is set.
+Sequence training and rollout evaluation consume `latent_cache.path`. Learned rollouts require
+`latent_cache.sequence_checkpoint_path`; declared references use the explicit
+`evaluation.baseline_mode` values `latent_state_persistence_decoded` or
+`observed_diagnostic_persistence`.

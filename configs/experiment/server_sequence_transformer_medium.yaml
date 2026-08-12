@@ -40,6 +40,13 @@ model:
     latent_dim: 128
     hidden_dims: [8, 16, 32]
     activation: gelu
+    extra:
+      channels: [8, 16, 32]
+      kernel_size: [1, 1, 1, 1, 1]
+      strides:
+        - [2, 2, 2, 4, 2]
+        - [2, 1, 2, 4, 2]
+        - [2, 1, 1, 2, 2]
     dropout_rate: 0.0
   diagnostics:
     flux_dim: 1
@@ -84,7 +91,6 @@ latent_cache:
   path: outputs/latent_cache/server_medium/latent_cache.h5
   encoder_checkpoint_path: outputs/server_encoder_simsiam_medium/checkpoints/step_000500
   sequence_checkpoint_path: null
-  use_persistence_baseline: false
 parallel:
   mode: auto
   axis_name: devices

@@ -67,4 +67,3 @@ latent_cache:
   path: outputs/smoke_embed_dataset/latent_cache.h5
   encoder_checkpoint_path: outputs/smoke_encoder_supervised/checkpoints/step_000005
   sequence_checkpoint_path: null
-  use_persistence_baseline: false

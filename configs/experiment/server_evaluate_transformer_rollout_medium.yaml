@@ -1,28 +1,21 @@
-name: server_encoder_supervised_medium_logspec
-output_dir: outputs/server_encoder_supervised_medium_logspec
+name: server_evaluate_transformer_rollout_medium
+output_dir: outputs/server_evaluate_transformer_rollout_medium
 data:
   backend: cyclone_kvikio
   root: ${GK_CYCLONE_DATA_ROOT}
-  split: train
+  split: test
   input_fields: [df]
   target_flux: true
   target_spectra: [kyspec, fluxspec]
   context_length: 8
   prediction_length: 1
-  batch_size: 4
-  shuffle: true
-  seed: 65
+  batch_size: 16
+  shuffle: false
+  seed: 52
   normalization:
     mode: none
     mean: null
     std: null
-  augmentations:
-    gaussian_noise_std: 0.0
-    amplitude_jitter_std: 0.0
-    mask_probability: 0.0
-    channel_dropout_probability: 0.0
-    periodic_shift: false
-    max_periodic_shift: 0
   cyclone:
     trajectories: null
     fields_to_load: [df]
@@ -47,7 +40,6 @@ model:
     latent_dim: 128
     hidden_dims: [8, 16, 32]
     activation: gelu
-    dropout_rate: 0.0
     extra:
       channels: [8, 16, 32]
       kernel_size: [1, 1, 1, 1, 1]
@@ -55,6 +47,7 @@ model:
         - [2, 2, 2, 4, 2]
         - [2, 1, 2, 4, 2]
         - [2, 1, 1, 2, 2]
+    dropout_rate: 0.0
   diagnostics:
     flux_dim: 1
     spectra_dims:
@@ -62,29 +55,41 @@ model:
       fluxspec: 32
     hidden_dims: [256]
     dropout_rate: 0.0
-  simsiam: null
-  sequence: null
+  sequence:
+    type: causal_transformer
+    latent_dim: 128
+    context_length: 8
+    hidden_dims: [256]
+    extra:
+      embed_dim: 256
+      depth: 3
+      num_heads: 4
+      mlp_ratio: 4.0
+      dropout_rate: 0.0
 training:
-  max_steps: 500
+  max_steps: 0
   learning_rate: 0.001
   weight_decay: 0.0001
-  warmup_steps: 25
-  gradient_clip_norm: 1.0
-  log_every: 25
-  eval_every: 100
-  checkpoint_every: 500
-  seed: 65
+  warmup_steps: 0
+  log_every: 1
+  eval_every: 1
+  checkpoint_every: 1
+  seed: 53
 loss:
   simsiam_weight: 0.0
   flux_weight: 1.0
   spectra_weight: 1.0
   latent_weight: 1.0
-  use_log_spectra: true
+  use_log_spectra: false
   spectra_epsilon: 0.000001
-  latent_loss: mse
+  latent_loss: mse_plus_cosine
 evaluation:
-  rollout_steps: 16
-  metrics: [latent_mse, flux_mse, spectra_mse]
+  rollout_steps: 8
+  metrics: [latent_mse, latent_cosine, flux_mse, spectra_mse]
+latent_cache:
+  path: outputs/latent_cache/server_medium/latent_cache.h5
+  encoder_checkpoint_path: outputs/server_encoder_simsiam_medium/checkpoints/step_000500
+  sequence_checkpoint_path: outputs/server_sequence_transformer_medium/checkpoints/step_000500
 parallel:
   mode: auto
   axis_name: devices

@@ -10,7 +10,7 @@ within three sentences.
 
   Can a compact JAX/Flax latent surrogate learn short-horizon dynamics from preprocessed
   five-dimensional gyrokinetic snapshots, and can a learned sequence model improve flux-predictive
-  rollout RMSE over persistence on unseen trajectories?
+  rollout RMSE over direct persistence of the observed flux on held-out trajectories?
 
   \item \textbf{Why is this question important?}
 
@@ -32,9 +32,10 @@ within three sentences.
 
   \item \textbf{What analyses must be applied to the data to answer the central question?}
 
-  Persistence, GRU, and Transformer candidates are evaluated on validation, where the learned model
-  is selected by flux RMSE. Only that fixed candidate and persistence are then rolled out for eight
-  steps on the retrospective test trajectories with trajectory-balanced metrics.
+  Latent-state persistence, GRU, and Transformer candidates are evaluated on validation, where the
+  learned model is selected by flux RMSE. The fixed candidate, both persistence references, and a
+  diagnostic-head oracle are then evaluated for eight steps on the retrospective trajectories with
+  trajectory-balanced metrics; this is not the final multi-seed protocol.
 
   \item \textbf{What evidence/data (values for the variables) were obtained?}
 
@@ -45,14 +46,14 @@ within three sentences.
   \item \textbf{What were the results of the analyses?}
 
   The validation-selected cache-normalized Transformer obtains test flux RMSE 11.4255 and latent
-  MSE 0.0738. Persistence obtains flux RMSE 11.9889 and latent MSE 0.1019; the Transformer improves
-  per-trajectory flux RMSE in three of five cases.
+  MSE 0.0738. Decoded latent persistence obtains flux RMSE 11.9889, while direct observed-flux
+  persistence obtains 3.7208; the diagnostic-head oracle is 12.0712.
 
   \item \textbf{How did the analyses answer the central question?}
 
-  The learned model has a 4.70\% lower primary flux-RMSE point estimate than persistence in this
-  retrospective realization. The paired interval includes zero, so the result does not establish
-  significance, repeatability, or broader superiority.
+  The learned model does not beat direct observed-flux persistence in this retrospective
+  realization. The diagnostic-head oracle is already worse than the observed baseline, so the
+  result does not isolate temporal forecasting quality or establish model superiority.
 
   \item \textbf{What does this answer tell us about the broader field?}
 

@@ -19,6 +19,11 @@ split seed differs from the evaluation configuration. All results below use data
 representation learning through evaluation. Validation and test manifests differ, while every row
 within a split has the same manifest.
 
+The numerical rows below are a retrospective reconstruction from retained local cache, checkpoint,
+and metrics artifacts. They are not the output of the frozen multi-seed protocol now recorded in
+the repository; that protocol remains planned until its source, dataset, and W\&B provenance are
+frozen before execution.
+
 \section{Representation Inspection}
 
 \autoref{fig:representation} shows descriptive projections of the 1,173 cached latent vectors.
@@ -54,9 +59,8 @@ selection metric.
 
 \begin{table}[htbp]
   \centering
-  \caption{Seed-52 validation results used for model selection. Lower is better. The bold row is
-  the selected learned model; persistence is a parameter-free reference rather than a candidate
-  architecture.}
+  \caption{Seed-52 validation results used for learned-model selection. Diagnostic-head rows use
+  the frozen head; observed-flux persistence copies the measured flux directly. Lower is better.}
   \label{tab:validation-results}
   \scriptsize
   \setlength{\tabcolsep}{3.5pt}
@@ -64,7 +68,8 @@ selection metric.
     \toprule
     Model & Latent MSE & Flux RMSE & Flux MAE & Flux rel. error & Stable \\
     \midrule
-    Persistence & 0.4341 & 17.7557 & 12.7683 & 0.2655 & yes \\
+    Latent persistence, decoded & 0.4341 & 17.7557 & 12.7683 & 0.2655 & yes \\
+    Observed-flux persistence & -- & 18.7572 & -- & -- & yes \\
     GRU & 0.6144 & 19.9275 & 14.3363 & 0.2905 & yes \\
     Transformer & 0.4823 & 18.6828 & 14.0105 & 0.2885 & yes \\
     GRU, cache-normalized & 0.5478 & 19.4800 & 14.7968 & 0.3112 & yes \\
@@ -75,50 +80,55 @@ selection metric.
 \end{table}
 
 The cache-normalized Transformer is the best learned candidate on validation flux RMSE. It does not
-beat persistence on that split. The retained selection uses only validation outcomes; previously
+beat decoded latent persistence on that split, but its point estimate is below direct observed-flux
+persistence. The retained selection uses only validation outcomes; previously
 observed test outcomes are not used to rank these candidates. GRU variants are not carried forward.
 This rule avoids choosing a candidate from the retained test rows.
 
 Cache normalization lowers validation flux RMSE from 19.9275 to 19.4800 for the GRU and from
 18.6828 to 18.1793 for the Transformer. It improves both learned point estimates without changing
-their ranking: the Transformer remains ahead of the GRU, and persistence remains ahead of every
+their ranking: the Transformer remains ahead of the GRU, and decoded latent persistence remains ahead of every
 learned candidate. RQ3 is therefore answered as a consistent improvement in the two point estimates,
 but not as a ranking change or a replicated effect.
 
 \section{Retrospective Test Comparison}
 
-After selection, only the fixed cache-normalized Transformer and the predeclared persistence
-baseline are evaluated on the seed-52 test split. Both rows use the same five test trajectories,
+After selection, the fixed cache-normalized Transformer and both persistence references are
+evaluated on the seed-52 test split. Every row uses the same five test trajectories,
 40 rollout windows, eight forecast steps, and the same stored trajectory manifest (SHA-256 prefix
 \texttt{519a2b02}).
 
 \begin{table}[htbp]
   \centering
-  \caption{Retrospective seed-52 test comparison. Flux RMSE is the primary metric in preprocessed
-  target units; lower is better for all displayed errors.}
+  \caption{Retrospective seed-52 test comparison. Flux RMSE is in preprocessed target units. The
+  diagnostic-head oracle applies the frozen head to true future latents and is not a forecast.}
   \label{tab:main-results}
   \scriptsize
-  \setlength{\tabcolsep}{2.7pt}
-  \begin{tabular}{lrrrrrc}
+  \setlength{\tabcolsep}{5pt}
+  \begin{tabular}{lrrc}
     \toprule
-    Model & Latent MSE & Flux RMSE & Flux MAE & Flux rel. error & Spectra rel. $L_2$ & Stable \\
+    Method & Latent MSE & Flux RMSE & Forecast? \\
     \midrule
-    Persistence & 0.1019 & 11.9889 & 10.7619 & 2.2474 & 19.5257 & yes \\
-    Transformer (cache norm.) & \textbf{0.0738} & \textbf{11.4255} & \textbf{10.2571} &
-      \textbf{2.2083} & \textbf{19.1686} & yes \\
+    Observed-flux persistence & -- & \textbf{3.7208} & yes \\
+    Transformer (cache norm.) & \textbf{0.0738} & 11.4255 & yes \\
+    Latent persistence, decoded & 0.1019 & 11.9889 & yes \\
+    Diagnostic-head oracle & 0 & 12.0712 & no \\
     \bottomrule
   \end{tabular}
 \end{table}
 
-The selected Transformer has a 4.70\% lower primary test point estimate than persistence.
-This headline RMSE is the square root of mean trajectory MSE, whereas the arithmetic means of
-the five per-trajectory RMSE values are 10.6715 for the Transformer and 11.4994 for persistence.
-It also reduces flux MAE by 4.69\%, latent MSE by 27.55\%, and aggregate spectra
-relative $L_2$ by 1.83\%. Per-trajectory flux RMSE improves in three of five cases. The paired mean
-difference (Transformer minus persistence) is $-0.8279$ with a descriptive 95\% t interval
-$[-2.2249,0.5692]$; because the interval includes zero and only one training seed is used, this is
-one retrospective realization rather than evidence of significance, equivalence, repeatability, or
-general superiority.
+The distinction changes the scientific conclusion. The Transformer is 4.70\% lower than decoded
+latent persistence, but direct observed-flux persistence is substantially stronger: 3.7208 versus
+11.4255, so the learned model's error is 3.07 times as large. The five trajectory-level differences
+(Transformer minus observed persistence) have mean 7.7902 and a descriptive 95\% t interval
+$[-0.6813,16.2616]$. The interval remains wide because only five trajectories and one training seed
+are available, but the retained point estimate does not support an advantage over observational
+persistence.
+
+The diagnostic-head oracle gives flux RMSE 12.0712 even when supplied the true future latents. Its
+error is close to both latent-rollout methods and exceeds direct observed-flux persistence by a
+large margin. Thus the current flux comparison is limited primarily by the frozen diagnostic head;
+it cannot isolate temporal forecasting quality from diagnostic decoding quality.
 
 \begin{figure}[htbp]
   \centering
@@ -133,29 +143,20 @@ general superiority.
     \small (b) Flux MSE
   \end{minipage}
   \caption{One-based horizon curves comparing the selected cache-normalized Transformer and
-  persistence on the seed-52 test split. Shading is between-trajectory standard deviation, not a
+  decoded latent-state persistence on the seed-52 test split. Shading is between-trajectory standard deviation, not a
   confidence interval.}
   \label{fig:selected-rollout}
 \end{figure}
 
 The selected model remains finite for every evaluated window. Its aggregate latent MSE is below
-persistence across the eight-step comparison, while its flux RMSE curve remains close to the
-reference throughout the horizon. Neither curve exhibits uncontrolled divergence within the short
-rollout.
-
-\begin{figure}[htbp]
-  \centering
-  \includegraphics[width=0.62\textwidth]{paired_test_flux_rmse.png}
-  \caption{Paired trajectory-level flux RMSE on the retrospective test split. Labels identify the
-  five trajectories without exposing dataset paths; solid circles indicate improvement and dashed
-  triangles indicate non-improvement, with colour as a redundant cue.}
-  \label{fig:paired-flux}
-\end{figure}
+persistence across the eight-step comparison. The flux panel is explicitly a comparison after the
+same learned head, not the observed-flux persistence result. Neither latent rollout exhibits
+uncontrolled divergence within the short horizon.
 
 \section{Spectral Diagnostics}
 
 The selected Transformer yields aggregate spectra relative $L_2$ 19.1686 compared with 19.5257 for
-persistence. The value is dominated by the \code{kyspec} component (35.2386 versus 35.9227), while
+decoded latent persistence. The value is dominated by the \code{kyspec} component (35.2386 versus 35.9227), while
 \code{fluxspec} relative errors are 3.0987 and 3.1287. Aggregate shape correlations are nearly
 identical (0.53439 versus 0.53419), so the relative-error change should not be interpreted as a
 general improvement in spectral structure. The large relative values also show that scale-sensitive
@@ -164,14 +165,10 @@ spectral prediction remains a weakness of both approaches.
 \begin{figure}[htbp]
   \centering
   \includegraphics[width=0.68\textwidth]{verified_spectra_mse_by_step.png}
-  \caption{Per-target spectra MSE by forecast horizon for the selected Transformer and persistence
+  \caption{Per-target spectra MSE by forecast horizon for the selected Transformer and decoded latent-state persistence
   on the seed-52 test split. Separate panels prevent the larger
   \code{kyspec} scale from hiding \code{fluxspec}; relative and shape metrics govern interpretation.}
   \label{fig:spectra-horizon}
 \end{figure}
 
-Historical log-spectra runs with mixed representation/downstream splits are retained only as
-invalidated engineering records. The language-model-transfer test is a separate, internally
-seed-consistent seed-62 protocol, but it has no matched persistence row or validation-based model
-selection under the retained seed-52 cache. It is therefore excluded from the principal comparison
-without being described as split-leaked.
+No historical mixed-split or transfer run is used as thesis evidence.

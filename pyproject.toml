@@ -44,6 +44,17 @@ gks-protocol = "gk_surrogate.protocol_runner:main"
 [tool.hatch.build.targets.wheel]
 packages = ["src/gk_surrogate"]
 
+[tool.hatch.build.targets.sdist]
+exclude = [
+  "/.git",
+  "/.venv",
+  "/.venv-gpu",
+  "/outputs",
+  "/dist",
+  "/thesis/build",
+  "/**/*.pyc",
+]
+
 [tool.pytest.ini_options]
 addopts = "-q"
 testpaths = ["tests"]

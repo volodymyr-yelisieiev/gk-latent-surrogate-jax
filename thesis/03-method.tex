@@ -128,14 +128,24 @@ statistics to the training split prevents test information from entering preproc
 
 \section{Sequence Models}
 
-\subsection{Persistence}
+\subsection{Persistence References}
 
-The persistence baseline predicts
+The latent-state persistence reference predicts
 \begin{equation}
   \hat z_{t+1}=z_t
 \end{equation}
-and repeats this value during recursive rollout. It is difficult to beat when adjacent states change
-slowly, making it a necessary baseline for short-horizon dynamics.
+and repeats this value during recursive rollout. Diagnostic errors for this reference are computed
+after the repeated latent passes through the frozen diagnostic head. It therefore tests temporal
+prediction in the learned representation, but it is not persistence of an observed diagnostic.
+
+For a diagnostic $y$, the observed-diagnostic persistence reference instead predicts
+\begin{equation}
+  \hat y_{t+k}=y_t,\qquad k=1,\ldots,T_r.
+\end{equation}
+It uses the last diagnostic value in the context directly and requires neither the encoder nor the
+diagnostic head. This is the primary persistence reference for flux forecasting. Finally, applying
+the frozen diagnostic head to each true future latent $z_{t+k}$ measures the diagnostic-head error
+floor on the retained latent cache. This oracle analysis is not a forecast model.
 
 \subsection{GRU}
 
@@ -157,8 +167,8 @@ dissimilarity. Adam-style optimization uses learning rate $10^{-3}$, weight deca
 \section{Autoregressive Evaluation}
 
 Given true context $z_{t-T_c+1:t}$, the model predicts $\hat z_{t+1}$. The context window is shifted,
-the prediction is appended, and the procedure is repeated for eight steps. The persistence baseline
-uses the same window construction. For latent prediction $\hat Z$ and target $Z$, the principal
+the prediction is appended, and the procedure is repeated for eight steps. Both persistence
+references use the same windows and forecast horizon. For latent prediction $\hat Z$ and target $Z$, the principal
 latent metric is
 \begin{equation}
   \mathrm{MSE}_{z}=\frac{1}{BT_rD}\lVert \hat Z-Z\rVert_2^2.

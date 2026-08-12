@@ -501,6 +501,8 @@ def test_cyclone_direct_reader_helpers_and_error_paths(monkeypatch: pytest.Monke
 
     with (trajectory / "metadata.pkl").open("wb") as handle:
         pickle.dump(metadata, handle)
+    with (trajectory / "metadata_light.pkl").open("wb") as handle:
+        pickle.dump({**metadata, "source": "light"}, handle)
 
     base = _cyclone_data(root, target_spectra=("kyspec",))
     assert base.cyclone is not None
@@ -517,6 +519,7 @@ def test_cyclone_direct_reader_helpers_and_error_paths(monkeypatch: pytest.Monke
     assert direct_cyclone_layout_available(root, no_float32) is False
     assert _direct_trajectory_paths(root, no_float32) == ()
     loaded_metadata = _read_direct_metadata(trajectory)
+    assert loaded_metadata["source"] == "light"
     assert "fluxes" in loaded_metadata
     assert _direct_sample_indices(loaded_metadata, config) == (1, 2)
     assert _direct_target(loaded_metadata, ("kyspec",), 2).tolist() == [4.0, 5.0]

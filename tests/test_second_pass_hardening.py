@@ -363,11 +363,11 @@ def test_config_loader_and_validation_remaining_command_edges(tiny_config_path):
         tiny_config_path,
         overrides=[
             "latent_cache.path=/tmp/nonexistent_latent_cache.h5",
-            "latent_cache.use_persistence_baseline=true",
+            "evaluation.baseline_mode=latent_state_persistence_decoded",
         ],
         command="evaluate-rollout",
     )
-    assert config.latent_cache.use_persistence_baseline
+    assert config.evaluation.baseline_mode == "latent_state_persistence_decoded"
 
 
 def test_train_sequence_private_branches_are_shape_safe():

@@ -20,7 +20,10 @@ def _trajectory_group_name(trajectory_id: str) -> str:
 
 
 def _stored_trajectory_id(group_name: str, group: h5py.Group) -> str:
-    return str(group.attrs.get("trajectory_id", group_name))
+    try:
+        return str(group.attrs["trajectory_id"])
+    except KeyError as exc:
+        raise ValueError(f"latent cache trajectory group {group_name!r} is missing trajectory_id") from exc
 
 
 @dataclass(frozen=True)

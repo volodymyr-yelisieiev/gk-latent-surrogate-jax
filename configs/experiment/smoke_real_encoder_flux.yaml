@@ -3,7 +3,7 @@ output_dir: outputs/smoke_real_encoder_flux
 data:
   backend: cyclone_kvikio
   root: ${GK_CYCLONE_DATA_ROOT}
-  split: all
+  split: train
   input_fields: [df]
   target_flux: true
   target_spectra: [kyspec, fluxspec]

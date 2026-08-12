@@ -81,7 +81,6 @@ latent_cache:
   path: outputs/latent_cache/server_medium/latent_cache.h5
   encoder_checkpoint_path: outputs/server_encoder_simsiam_medium/checkpoints/step_000500
   sequence_checkpoint_path: null
-  use_persistence_baseline: false
 parallel:
   mode: auto
   axis_name: devices
