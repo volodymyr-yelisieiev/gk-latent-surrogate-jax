@@ -9,7 +9,6 @@ data:
   prediction_length: 1
   batch_size: 1
   shuffle: true
-  num_workers: 0
   seed: 42
   normalization:
     mode: dataset

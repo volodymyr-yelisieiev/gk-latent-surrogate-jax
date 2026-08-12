@@ -185,12 +185,17 @@ def test_real_sequence_checkpoint_is_bound_to_cache_and_encoder_lineage(tmp_path
     )
     cache_path = tmp_path / "cache.h5"
     encoder_checkpoint = tmp_path / "encoder" / "checkpoints" / "step_000001"
+    cache_path.write_bytes(b"cache")
+    encoder_checkpoint.mkdir(parents=True)
+    (encoder_checkpoint / "checkpoint.pkl").write_bytes(b"encoder")
     config["latent_cache"] = {
         "path": str(cache_path),
         "encoder_checkpoint_path": str(encoder_checkpoint),
     }
     metrics["latent_cache"] = str(cache_path)
     metrics["encoder_checkpoint"] = str(encoder_checkpoint)
+    metrics["latent_cache_sha256"] = pipeline._sha256_file(cache_path)
+    metrics["encoder_checkpoint_sha256"] = pipeline._sha256_file(encoder_checkpoint / "checkpoint.pkl")
     (checkpoint.parents[1] / "config_resolved.json").write_text(json.dumps(config), encoding="utf-8")
     (checkpoint.parents[1] / "metrics.json").write_text(json.dumps(metrics), encoding="utf-8")
     kwargs = {

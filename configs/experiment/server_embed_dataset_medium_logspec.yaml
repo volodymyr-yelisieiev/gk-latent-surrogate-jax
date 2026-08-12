@@ -11,7 +11,6 @@ data:
   prediction_length: 1
   batch_size: 4
   shuffle: false
-  num_workers: 0
   seed: 62
   normalization:
     mode: none
@@ -66,8 +65,6 @@ training:
   log_every: 1
   eval_every: 1
   checkpoint_every: 1
-  dtype: float32
-  jit: true
   seed: 62
 loss:
   simsiam_weight: 0.0
@@ -79,7 +76,6 @@ loss:
   latent_loss: mse
 evaluation:
   rollout_steps: 16
-  batch_size: 4
   metrics: [latent_mse, flux_mse, spectra_mse]
 latent_cache:
   path: outputs/latent_cache/server_medium_logspec/latent_cache.h5

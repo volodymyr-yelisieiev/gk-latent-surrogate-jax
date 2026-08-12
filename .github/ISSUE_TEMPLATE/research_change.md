@@ -21,11 +21,18 @@ State the research question, intended behavior, or maintenance requirement.
 Identify affected data, caches, checkpoints, splits, horizons, metrics, or artifact schemas.
 Use `None` when the proposal has no scientific-result impact.
 
+- Planned protocol ID:
+- Primary estimand and model-selection rule:
+- Unseen-test availability or nested-CV fallback:
+- Original telemetry and release evidence:
+
 ## Verification
 
 - [ ] Behavior is covered by tests or a synthetic smoke run.
 - [ ] Documentation is updated when interfaces or workflows change.
 - [ ] Generated artifacts remain outside git.
+- [ ] The protocol is frozen before scientific runs begin.
+- [ ] Invalidated retries remain recorded and excluded from the accepted comparison.
 - [ ] `make check`, relevant smoke checks, and `uv build` pass.
 
 ## Risks

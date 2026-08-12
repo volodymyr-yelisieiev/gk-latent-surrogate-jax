@@ -1,0 +1,62 @@
+{
+  "$schema": "./protocol.schema.json",
+  "schema_version": "1.0.0",
+  "protocol_id": "multiseed-v1",
+  "status": "planned",
+  "created_before_runs": true,
+  "source": {
+    "repository": "https://github.com/volodymyr-yelisieiev/gk-latent-surrogate-jax",
+    "commit": null,
+    "tag": null,
+    "tracked_diff_sha256": null
+  },
+  "data": {
+    "dataset_revision": null,
+    "universe_manifest_sha256": null,
+    "development_split_seed": 52,
+    "normalization_fit_split": "train_only",
+    "evaluation_route": "nested_group_cross_validation",
+    "final_test_rule": {
+      "minimum_unseen_trajectories": 10,
+      "manifest_sha256": null,
+      "opened_at_utc": null
+    },
+    "fallback_rule": {
+      "method": "nested_group_cross_validation",
+      "outer_folds": 5,
+      "selection_scope": "inner_validation_only",
+      "test_language": "retrospective_cross_validation"
+    }
+  },
+  "models": {
+    "families": ["persistence", "gru", "transformer"],
+    "training_seeds": [52, 53, 54, 55, 56],
+    "matched_seed_policy": "same_training_seeds_and_data_rules_for_all_learned_models"
+  },
+  "selection": {
+    "split": "validation",
+    "primary_metric": "trajectory_balanced_flux_rmse",
+    "checkpoint_rule": "lowest_validation_primary_metric",
+    "architecture_rule": "lowest_mean_validation_primary_metric_over_all_matched_training_seeds",
+    "architecture_aggregation": "arithmetic_mean_over_matched_training_seeds",
+    "test_used_for_selection": false
+  },
+  "evaluation": {
+    "primary_estimand": "paired_transformer_minus_persistence_per_trajectory_flux_rmse_mean_over_seeds_and_trajectories",
+    "uncertainty": "paired_hierarchical_bootstrap_over_training_seeds_and_trajectories",
+    "secondary_metrics": [
+      "headline_sqrt_mean_trajectory_mse",
+      "flux_mae",
+      "latent_mse",
+      "per_target_spectra_relative_l2",
+      "per_target_spectra_shape_correlation"
+    ],
+    "units": "preprocessed_target_units_unless_physical_units_are_verified"
+  },
+  "reporting": {
+    "negative_result_rule": "if_the_interval_includes_zero_report_no_convincing_advantage",
+    "spectra_rule": "report_targets_separately_and_do_not_infer_fidelity_from_aggregate_relative_l2",
+    "invalidated_run_rule": "retain_with_reason_and_exclude_from_accepted_comparison"
+  },
+  "accepted_runs": []
+}

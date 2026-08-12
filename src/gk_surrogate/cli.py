@@ -18,6 +18,7 @@ from gk_surrogate.pipeline import (
     evaluate_flux_head,
     evaluate_rollout,
     plot_representation,
+    train_direct_diagnostics,
     train_encoder,
     train_sequence,
 )
@@ -39,6 +40,7 @@ def _build_parser() -> argparse.ArgumentParser:
     for command in (
         "inspect-data",
         "train-encoder",
+        "train-direct-diagnostics",
         "embed-dataset",
         "train-sequence",
         "evaluate-flux-head",
@@ -147,6 +149,9 @@ def _dispatch(args: argparse.Namespace) -> int:
 
     if args.command == "train-encoder":
         console.print(train_encoder(config, dry_run=args.dry_run))
+        return 0
+    if args.command == "train-direct-diagnostics":
+        console.print(train_direct_diagnostics(config, dry_run=args.dry_run))
         return 0
     if args.command == "embed-dataset":
         console.print(embed_dataset(config, dry_run=args.dry_run))

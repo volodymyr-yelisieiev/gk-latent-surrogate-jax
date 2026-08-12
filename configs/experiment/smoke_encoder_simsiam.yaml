@@ -11,7 +11,6 @@ data:
   prediction_length: 1
   batch_size: 2
   shuffle: true
-  num_workers: 0
   seed: 42
   normalization:
     mode: dataset
@@ -54,7 +53,6 @@ model:
   sequence: null
 training:
   max_steps: 5
-  epochs: null
   learning_rate: 0.001
   weight_decay: 0.0
   warmup_steps: 0
@@ -62,8 +60,6 @@ training:
   log_every: 1
   eval_every: 5
   checkpoint_every: 5
-  dtype: float32
-  jit: true
   seed: 42
 loss:
   simsiam_weight: 1.0
@@ -75,5 +71,4 @@ loss:
   latent_loss: mse
 evaluation:
   rollout_steps: 4
-  batch_size: 2
   metrics: [latent_mse, flux_mse, spectra_mse]

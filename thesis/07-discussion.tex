@@ -4,20 +4,18 @@
 
 \section{Answer to the Research Question}
 
-The corrected experiments support a bounded positive answer to the primary empirical question.
-The cache-normalized Transformer is the best learned model on validation flux RMSE and, on the
-locked test, lowers flux RMSE from 11.9889 for persistence to 11.4255. Learned latent dynamics
-therefore improve the predeclared primary point estimate by 4.70\% under the examined seed-52,
-eight-step protocol. The paired five-trajectory interval includes zero, so the result is not a
-claim of statistical significance or broad superiority.
+The cache-normalized Transformer is the best learned model on validation flux RMSE. In the
+retrospective seed-52 test realization, its flux RMSE is 11.4255 versus 11.9889 for persistence, a
+4.70\% lower primary point estimate. The paired five-trajectory interval includes zero, so this
+experiment does not establish statistical significance, repeatability, or broad superiority.
 
-This result does not make the implementation uninformative. It establishes that the complete data,
+The run establishes that the complete data,
 representation, cache, sequence, diagnostic, and provenance path can be executed with a strict
-trajectory-level split and locked evaluation. It also shows that a strong persistence reference is
+trajectory-level split. It also shows that a strong persistence reference is
 essential for slowly changing latent states: low training loss or a complex temporal architecture
-does not by itself demonstrate useful forecasting. The scientifically relevant conclusion is that
-the present encoder and training budget produce a modest held-out improvement under one fixed
-protocol, with insufficient independent replication for a broader claim.
+does not by itself demonstrate useful forecasting. Under the present encoder and training budget,
+the learned-model point estimate is lower in one test realization, with insufficient independent
+replication for a broader claim.
 
 \section{Interpretation of the Test Difference}
 
@@ -34,10 +32,10 @@ shape correlation. These disagreements justify the metric hierarchy: flux RMSE r
 answer, while MAE, relative error, spectra diagnostics, and latent error explain how the answer was
 obtained.
 
-The learned model also has lower latent MSE than persistence on the locked test. Because diagnostic
+The learned model also has lower latent MSE than persistence on the retrospective test. Because diagnostic
 heads are nonlinear and task-specific, latent and flux rankings need not match exactly, but they
 agree here. Cache normalization improved both learned architectures on validation, suggesting that
-coordinate scale matters; a multi-seed study is needed to determine whether that effect is robust.
+coordinate scale may matter; matched multi-seed runs are needed to test whether the effect repeats.
 
 \section{Importance of the Integrity Audit}
 
@@ -94,10 +92,13 @@ The study has several limitations:
 
 \section{Future Work}
 
-The first priority is a multi-seed replication of the locked validation-to-test protocol. Model
-selection should remain confined to validation, with a single final test opening after architecture,
-normalization, and training budget are fixed. Confidence intervals should be based on independent
-trajectories and training seeds rather than overlapping windows alone.
+The next protocol uses matched training seeds 52--56. If at least ten previously uninspected
+trajectories are available, their manifest becomes the final test after architecture,
+normalization, budget, and checkpoints are fixed on validation. Otherwise, the study uses five-fold
+nested group cross-validation and calls the analysis retrospective
+\citep{varma2006crossvalidation,cawley2010selectionbias}. The primary interval is a paired
+hierarchical bootstrap over training seeds and trajectories rather than overlapping windows
+\citep{saravanan2020hierarchical}.
 
 Architecturally, the encoder deserves more attention than a wider sequence sweep. Structured
 five-dimensional patch mixing or less aggressive subsampling may retain temporal cues that the

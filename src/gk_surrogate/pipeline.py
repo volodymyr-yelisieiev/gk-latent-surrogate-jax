@@ -38,24 +38,32 @@ from gk_surrogate.evaluation.rollout import (
 )
 from gk_surrogate.factory import (
     build_diagnostic_heads,
+    build_direct_diagnostic_baseline,
     build_encoder_with_diagnostics,
     build_sequence_model,
     build_simsiam_encoder_with_diagnostics,
 )
+from gk_surrogate.losses.diagnostics import diagnostic_prediction_loss
 from gk_surrogate.parallel.batch import drop_or_pad_to_multiple, shard_batch
 from gk_surrogate.parallel.devices import ParallelPlan, get_local_devices, resolve_parallel_mode, write_device_report
-from gk_surrogate.parallel.pmap_steps import make_pmap_encoder_train_step, make_pmap_sequence_train_step
+from gk_surrogate.parallel.pmap_steps import (
+    make_pmap_encoder_eval_step,
+    make_pmap_encoder_train_step,
+    make_pmap_sequence_eval_step,
+    make_pmap_sequence_train_step,
+)
 from gk_surrogate.parallel.replicate import replicate_state, unreplicate_state, unreplicate_tree
 from gk_surrogate.training.checkpointing import latest_checkpoint, load_checkpoint, save_checkpoint
 from gk_surrogate.training.embed_dataset import encode_snapshots
 from gk_surrogate.training.logging import MetricsLogger, write_json, write_run_metadata
-from gk_surrogate.training.optimizer import build_optimizer
+from gk_surrogate.training.optimizer import build_optimizer, learning_rate_schedule
 from gk_surrogate.training.state import TrainState
-from gk_surrogate.training.train_encoder import train_encoder_step
-from gk_surrogate.training.train_sequence import train_sequence_step
+from gk_surrogate.training.train_encoder import eval_encoder_step, train_encoder_step
+from gk_surrogate.training.train_sequence import eval_sequence_step, train_sequence_step
 from gk_surrogate.utils.paths import ensure_dir
 
 _PROTOCOL_VERSION = 1
+_UNSET = object()
 
 
 def _output_dir(config: ExperimentConfig) -> Path:
@@ -111,6 +119,126 @@ def _prepare_parallel_batch(batch: Mapping[str, Any], plan: ParallelPlan) -> dic
     if prepared is None:
         return None
     return shard_batch(prepared, plan.num_devices)
+
+
+def _batch_size(batch: Mapping[str, Any]) -> int:
+    leaves = [leaf for leaf in jax.tree_util.tree_leaves(batch) if leaf is not None and hasattr(leaf, "shape")]
+    if not leaves or not leaves[0].shape:
+        raise ValueError("evaluation batch has no batched array leaves")
+    return int(leaves[0].shape[0])
+
+
+def _aggregate_eval_metrics(
+    state: TrainState,
+    batches: Iterator[dict[str, Any]],
+    *,
+    plan: ParallelPlan,
+    step_fn: Any,
+) -> dict[str, float]:
+    totals: dict[str, float] = {}
+    total_examples = 0
+    for batch in batches:
+        batch_size = _batch_size(batch)
+        prepared = _prepare_parallel_batch(batch, plan)
+        if prepared is None:
+            continue
+        metrics = _host_metrics(step_fn(state, prepared), plan)
+        for key, value in metrics.items():
+            totals[key] = totals.get(key, 0.0) + float(value) * batch_size
+        total_examples += batch_size
+    if total_examples == 0:
+        raise ValueError("validation split produced no evaluable batches")
+    return {key: value / total_examples for key, value in totals.items()}
+
+
+def _aggregate_eval_metrics_by_trajectory(
+    state: TrainState,
+    trajectory_ids: tuple[str, ...],
+    *,
+    batches_for_trajectory: Any,
+    plan: ParallelPlan,
+    step_fn: Any,
+) -> dict[str, float]:
+    """Average validation metrics with one equal contribution per trajectory."""
+
+    if not trajectory_ids:
+        raise ValueError("trajectory-balanced validation requires at least one trajectory")
+    per_trajectory = [
+        _aggregate_eval_metrics(
+            state,
+            batches_for_trajectory(trajectory_id),
+            plan=plan,
+            step_fn=step_fn,
+        )
+        for trajectory_id in trajectory_ids
+    ]
+    metric_names = set(per_trajectory[0])
+    if any(set(metrics) != metric_names for metrics in per_trajectory[1:]):
+        raise ValueError("validation trajectories produced inconsistent metric sets")
+    return {
+        name: float(np.mean([metrics[name] for metrics in per_trajectory]))
+        for name in sorted(metric_names)
+    }
+
+
+def _scheduled_learning_rate(config: ExperimentConfig, completed_step: int) -> float:
+    schedule_step = max(completed_step - 1, 0)
+    return float(learning_rate_schedule(config.training)(schedule_step))
+
+
+def _direct_diagnostic_loss(
+    params: Any,
+    state: TrainState,
+    batch: Mapping[str, Any],
+    *,
+    train: bool,
+) -> tuple[jax.Array, dict[str, jax.Array]]:
+    rngs = {"dropout": state.rng} if train else None
+    predictions = state.apply_fn(
+        {"params": params},
+        batch["x"],
+        train=train,
+        **({"rngs": rngs} if rngs is not None else {}),
+    )
+    flux_target = batch.get("flux")
+    spectra_target = batch.get("spectra")
+    loss, metrics = diagnostic_prediction_loss(
+        predictions,
+        flux_target=flux_target,
+        spectra_target=spectra_target,
+        flux_weight=float(state.model_config["flux_weight"]),
+        spectra_weight=float(state.model_config["spectra_weight"]),
+        log_spectra=bool(state.model_config["use_log_spectra"]),
+        spectra_eps=float(state.model_config["spectra_epsilon"]),
+    )
+    flat = {key.replace("loss/", ""): value for key, value in metrics.items()}
+    if predictions.flux is not None and flux_target is not None:
+        flat["flux_mse"] = jnp.mean(jnp.square(predictions.flux - flux_target))
+    for key, prediction in predictions.spectra.items():
+        if isinstance(spectra_target, Mapping) and key in spectra_target:
+            flat[f"spectra_{key}_mse"] = jnp.mean(jnp.square(prediction - spectra_target[key]))
+    return loss, flat
+
+
+@jax.jit
+def _train_direct_diagnostic_step(
+    state: TrainState,
+    batch: Mapping[str, Any],
+) -> tuple[TrainState, dict[str, jax.Array]]:
+    rng, step_rng = jax.random.split(state.rng)
+    step_state = state.replace_rng(step_rng)
+
+    def loss_fn(params: Any) -> tuple[jax.Array, dict[str, jax.Array]]:
+        return _direct_diagnostic_loss(params, step_state, batch, train=True)
+
+    (loss, metrics), grads = jax.value_and_grad(loss_fn, has_aux=True)(state.params)
+    return state.apply_gradients(grads=grads).replace(rng=rng), {**metrics, "loss": loss}
+
+
+@jax.jit
+def _eval_direct_diagnostic_step(state: TrainState, batch: Mapping[str, Any]) -> dict[str, jax.Array]:
+    _, metrics = _direct_diagnostic_loss(state.params, state, batch, train=False)
+    return metrics
 
 
 def _device_summary(plan: ParallelPlan) -> dict[str, Any]:
@@ -331,6 +459,12 @@ def _validate_checkpoint_protocol(
             != Path(expected_encoder_checkpoint).resolve()
         ):
             raise ValueError(f"{role} metrics do not match the loaded cache/encoder lineage")
+        if metrics.get("latent_cache_sha256") != _sha256_file(expected_cache_path):
+            raise ValueError(f"{role} latent-cache content hash does not match the loaded cache")
+        if metrics.get("encoder_checkpoint_sha256") != _sha256_file(
+            _checkpoint_pickle(expected_encoder_checkpoint)
+        ):
+            raise ValueError(f"{role} encoder-checkpoint content hash does not match cache lineage")
 
 
 def _latent_cache_run_config(path: str | Path) -> Mapping[str, Any] | None:
@@ -353,6 +487,82 @@ def _latent_cache_protocol(path: str | Path) -> Mapping[str, Any] | None:
         return None
     payload = json.loads(str(raw))
     return payload if isinstance(payload, Mapping) and payload else None
+
+
+def _sha256_file(path: str | Path) -> str:
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _checkpoint_pickle(path: str | Path) -> Path:
+    candidate = Path(path)
+    return candidate / "checkpoint.pkl" if candidate.is_dir() else candidate
+
+
+def _checkpoint_sidecar(path: str | Path, name: str) -> Path:
+    candidate = Path(path)
+    search_root = candidate.parent if candidate.is_file() else candidate
+    for depth, parent in enumerate((search_root, *search_root.parents)):
+        if depth > 3:
+            break
+        sidecar = parent / name
+        if sidecar.is_file():
+            return sidecar
+    raise FileNotFoundError(f"checkpoint {path} is missing required {name} lineage artifact")
+
+
+def _cache_encoder_checkpoint(path: str | Path) -> Path:
+    """Resolve encoder lineage from cache metadata and verify its content hash.
+
+    The consuming config is deliberately not a source of truth here. It may only
+    agree with the cache lineage checked by ``_validate_cache_encoder_lineage``.
+    """
+
+    protocol = _latent_cache_protocol(path)
+    config_payload = _latent_cache_run_config(path)
+    with h5py.File(path, "r") as handle:
+        raw_attr = handle["metadata"].attrs.get("encoder_checkpoint_path", "")
+    if isinstance(raw_attr, bytes):
+        raw_attr = raw_attr.decode("utf-8")
+    config_cache = config_payload.get("latent_cache") if isinstance(config_payload, Mapping) else None
+    configured = config_cache.get("encoder_checkpoint_path") if isinstance(config_cache, Mapping) else None
+    protocol_path = protocol.get("encoder_checkpoint") if isinstance(protocol, Mapping) else None
+    candidates = [str(value) for value in (raw_attr, configured, protocol_path) if value]
+    if not candidates:
+        raise ValueError("latent cache is missing authoritative encoder-checkpoint lineage")
+    resolved = {Path(value).resolve() for value in candidates}
+    if len(resolved) != 1:
+        raise ValueError("latent cache metadata disagrees about its encoder-checkpoint lineage")
+    checkpoint = next(iter(resolved))
+    checkpoint_file = _checkpoint_pickle(checkpoint)
+    if not checkpoint_file.is_file():
+        raise FileNotFoundError(f"latent cache encoder checkpoint not found: {checkpoint}")
+    expected_hash = protocol.get("encoder_checkpoint_sha256") if isinstance(protocol, Mapping) else None
+    if not isinstance(expected_hash, str) or not expected_hash:
+        raise ValueError("latent cache protocol is missing encoder_checkpoint_sha256")
+    if _sha256_file(checkpoint_file) != expected_hash:
+        raise ValueError("latent cache encoder-checkpoint hash does not match the stored lineage")
+    return checkpoint
+
+
+def _validate_cache_encoder_lineage(config: ExperimentConfig, path: str | Path) -> Path:
+    checkpoint = _cache_encoder_checkpoint(path)
+    configured = config.latent_cache.encoder_checkpoint_path
+    if configured and Path(configured).resolve() != checkpoint:
+        raise ValueError("configured encoder checkpoint does not match the latent cache lineage")
+    return checkpoint
+
+
+def _optional_cache_encoder_lineage(config: ExperimentConfig, path: str | Path) -> Path | None:
+    protocol = _latent_cache_protocol(path)
+    with h5py.File(path, "r") as handle:
+        raw = handle["metadata"].attrs.get("encoder_checkpoint_path", "")
+    if not raw and not (isinstance(protocol, Mapping) and protocol.get("encoder_checkpoint")):
+        return None
+    return _validate_cache_encoder_lineage(config, path)
 
 
 def _validate_latent_cache_split_seed(path: str | Path, *, expected_seed: int) -> None:
@@ -487,10 +697,18 @@ def _trajectory_normalization_stats(config: ExperimentConfig, ids: tuple[str, ..
     return {trajectory_id: estimate_trajectory_stats(dataset, trajectory_id) for trajectory_id in ids}
 
 
-def _snapshot_batches(config: ExperimentConfig, *, repeat: bool = True) -> Iterator[dict[str, Any]]:
+def _snapshot_batches(
+    config: ExperimentConfig,
+    *,
+    repeat: bool = True,
+    trajectory_ids: tuple[str, ...] | None = None,
+    normalization_stats: NormalizationStats | None | object = _UNSET,
+) -> Iterator[dict[str, Any]]:
     dataset = build_dataset(config.data)
-    ids = _selected_trajectory_ids(config)
-    stats = _normalization_stats(config)
+    ids = _selected_trajectory_ids(config) if trajectory_ids is None else trajectory_ids
+    stats = _normalization_stats(config) if normalization_stats is _UNSET else normalization_stats
+    if stats is not None and not isinstance(stats, NormalizationStats):
+        raise TypeError("normalization_stats must be NormalizationStats or None")
     trajectory_stats = _trajectory_normalization_stats(config, ids)
     index = 0
     rng = np.random.default_rng(config.data.seed)
@@ -578,44 +796,102 @@ def train_encoder(config: ExperimentConfig, *, dry_run: bool = False) -> dict[st
     (out / "config_resolved.yaml").write_text(config_to_yaml(train_config), encoding="utf-8")
     if config.parallel.log_device_summary:
         write_device_report(out, config=config.parallel, plan=plan)
-    if config.data.normalization.mode in {"dataset", "trajectory", "fixed"}:
-        stats = _normalization_stats(config)
-        if stats is not None:
-            stats.save_npz(out / "normalization_stats.npz")
+    training_stats = _normalization_stats(config)
+    if config.data.normalization.mode in {"dataset", "trajectory", "fixed"} and training_stats is not None:
+        training_stats.save_npz(out / "normalization_stats.npz")
 
     logger = _metrics_logger(out, train_config)
     metrics: Mapping[str, Any] = {}
     state = _replicated_if_needed(state, plan)
     step_fn = make_pmap_encoder_train_step(plan.axis_name) if plan.uses_pmap else train_encoder_step
-    batches = _snapshot_batches(config, repeat=True)
+    eval_fn = make_pmap_encoder_eval_step(plan.axis_name) if plan.uses_pmap else eval_encoder_step
+    batches = _snapshot_batches(config, repeat=True, normalization_stats=training_stats)
+    dataset = build_dataset(config.data)
+    universe_ids = tuple(dataset.trajectory_ids())
+    validation_ids = split_trajectory_ids(universe_ids, seed=config.data.seed)["val"] if len(universe_ids) > 1 else ()
+    if validation_ids and config.data.normalization.mode == "trajectory":
+        raise ValueError("trajectory normalization cannot be fit independently on held-out validation trajectories")
+    train_totals: dict[str, float] = {}
+    train_examples = 0
+    best_metric = float("inf")
+    best_step: int | None = None
+    best_checkpoint: Path | None = None
+    latest_validation: dict[str, float] = {}
     step_value = 0
     while step_value < config.training.max_steps:
-        batch = _prepare_parallel_batch(next(batches), plan)
+        raw_batch = next(batches)
+        raw_batch_size = _batch_size(raw_batch)
+        batch = _prepare_parallel_batch(raw_batch, plan)
         if batch is None:
             continue
         state, metrics = step_fn(state, batch)
         host_state = _host_state(state, plan)
         host_metrics = _host_metrics(metrics, plan)
         step_value = int(host_state.step)
+        for key, value in host_metrics.items():
+            train_totals[key] = train_totals.get(key, 0.0) + float(value) * raw_batch_size
+        train_examples += raw_batch_size
         row = {
             "step": step_value,
-            "lr": train_config.training.learning_rate,
+            "lr": _scheduled_learning_rate(train_config, step_value),
             **{k: float(v) for k, v in host_metrics.items()},
         }
         if step_value % config.training.log_every == 0 or step_value == config.training.max_steps:
             logger.log(row, prefix="train")
         if step_value % config.training.checkpoint_every == 0:
             save_checkpoint(host_state, out, step=step_value)
+        should_validate = bool(validation_ids) and (
+            step_value % config.training.eval_every == 0 or step_value == config.training.max_steps
+        )
+        if should_validate:
+            latest_validation = _aggregate_eval_metrics_by_trajectory(
+                state,
+                validation_ids,
+                batches_for_trajectory=lambda trajectory_id: _snapshot_batches(
+                    config,
+                    repeat=False,
+                    trajectory_ids=(trajectory_id,),
+                    normalization_stats=training_stats,
+                ),
+                plan=plan,
+                step_fn=eval_fn,
+            )
+            if config.data.target_flux and config.loss.flux_weight > 0.0:
+                primary_name = "flux_rmse"
+                primary_value = float(np.sqrt(max(latest_validation["flux_loss"], 0.0)))
+                latest_validation[primary_name] = primary_value
+            else:
+                primary_name = "loss"
+                primary_value = latest_validation[primary_name]
+            logger.log({"step": step_value, **latest_validation}, prefix="validation")
+            if primary_value < best_metric:
+                best_metric = primary_value
+                best_step = step_value
+                best_checkpoint = save_checkpoint(host_state, out, step=step_value)
     final_state = _host_state(state, plan)
     metrics = _host_metrics(metrics, plan)
-    ckpt = save_checkpoint(final_state, out, step=int(final_state.step))
-    dataset = build_dataset(config.data)
-    universe_ids = tuple(dataset.trajectory_ids())
+    final_checkpoint = save_checkpoint(final_state, out, step=int(final_state.step))
+    ckpt = best_checkpoint or final_checkpoint
+    if best_step is None:
+        best_step = int(final_state.step)
     selected_ids = _selected_ids_from_universe(config, universe_ids)
+    aggregate_metrics = {
+        key: value / train_examples for key, value in train_totals.items()
+    }
     summary = {
         "artifact_role": "encoder_checkpoint",
         "step": int(final_state.step),
         "checkpoint": str(ckpt),
+        "checkpoint_step": best_step,
+        "checkpoint_sha256": _sha256_file(_checkpoint_pickle(ckpt)),
+        "checkpoint_selection": "minimum_validation_flux_rmse" if validation_ids and config.data.target_flux else (
+            "minimum_validation_loss" if validation_ids else "final_step_no_validation_split"
+        ),
+        "best_validation_metric": None if not np.isfinite(best_metric) else best_metric,
+        "last_minibatch": {k: float(v) for k, v in metrics.items()},
+        "train_aggregate": aggregate_metrics,
+        "validation": latest_validation,
+        "actual_learning_rate": _scheduled_learning_rate(train_config, int(final_state.step)),
         **_protocol_fields(
             config,
             selected_ids,
@@ -625,6 +901,154 @@ def train_encoder(config: ExperimentConfig, *, dry_run: bool = False) -> dict[st
         **_device_summary(plan),
         **_system_metrics(plan),
         **{k: float(v) for k, v in metrics.items()},
+    }
+    if logger.wandb_status().get("requested"):
+        summary["wandb"] = logger.wandb_status()
+    logger.write_summary(summary)
+    return summary
+
+
+def train_direct_diagnostics(config: ExperimentConfig, *, dry_run: bool = False) -> dict[str, Any]:
+    """Train the same-time snapshot-to-diagnostics control on train trajectories.
+
+    Checkpoint selection and reported metrics use only the canonical validation
+    split. This command deliberately does not inspect the test split.
+    """
+
+    dataset = build_dataset(config.data)
+    universe_ids = tuple(dataset.trajectory_ids())
+    if len(universe_ids) < 2:
+        raise ValueError("direct diagnostic baseline requires at least two trajectories for held-out validation")
+    splits = split_trajectory_ids(universe_ids, seed=config.data.seed)
+    train_ids = splits["train"]
+    validation_ids = splits["val"]
+    if not train_ids or not validation_ids:
+        raise ValueError("direct diagnostic baseline requires non-empty train and validation trajectory splits")
+    sample = dataset.get_snapshot(train_ids[0], 0)
+    first_x = jnp.asarray(sample.x[None, ...], dtype=jnp.float32)
+    model = build_direct_diagnostic_baseline(config.model.diagnostics)
+    rng = jax.random.PRNGKey(config.training.seed)
+    variables = model.init(rng, first_x, train=True)
+    state = TrainState.create(
+        apply_fn=model.apply,
+        params=variables["params"],
+        tx=build_optimizer(config.training),
+        rng=rng,
+        model_config=_loss_config(config),
+    )
+    if dry_run or config.training.max_steps == 0:
+        return {
+            "dry_run": True,
+            "baseline": "direct_snapshot_diagnostics",
+            "input_shape": list(first_x.shape),
+            "train_trajectory_ids": list(train_ids),
+            "validation_trajectory_ids": list(validation_ids),
+            "test_split_inspected": False,
+        }
+    mode = config.data.normalization.mode
+    if mode == "trajectory":
+        raise ValueError(
+            "direct diagnostic baseline does not fit trajectory-specific stats on held-out validation data"
+        )
+    if mode == "dataset":
+        normalization_stats = estimate_dataset_stats(
+            dataset,
+            trajectory_ids=train_ids,
+            max_samples=config.data.normalization.max_samples,
+        )
+    else:
+        normalization_stats = _normalization_stats(config)
+
+    out = _output_dir(config)
+    write_run_metadata(out, config=config.model_dump(mode="json"))
+    (out / "config_resolved.yaml").write_text(config_to_yaml(config), encoding="utf-8")
+    if normalization_stats is not None:
+        normalization_stats.save_npz(out / "normalization_stats.npz")
+    logger = _metrics_logger(out, config)
+    batches = _snapshot_batches(
+        config,
+        repeat=True,
+        trajectory_ids=train_ids,
+        normalization_stats=normalization_stats,
+    )
+    train_totals: dict[str, float] = {}
+    train_examples = 0
+    last_metrics: Mapping[str, Any] = {}
+    best_metric = float("inf")
+    best_checkpoint: Path | None = None
+    best_step: int | None = None
+    validation_metrics: dict[str, float] = {}
+    while int(state.step) < config.training.max_steps:
+        batch = next(batches)
+        batch_size = _batch_size(batch)
+        state, last_metrics = _train_direct_diagnostic_step(state, batch)
+        step = int(state.step)
+        for key, value in last_metrics.items():
+            train_totals[key] = train_totals.get(key, 0.0) + float(value) * batch_size
+        train_examples += batch_size
+        if step % config.training.log_every == 0 or step == config.training.max_steps:
+            logger.log(
+                {
+                    "step": step,
+                    "lr": _scheduled_learning_rate(config, step),
+                    **{key: float(value) for key, value in last_metrics.items()},
+                },
+                prefix="train",
+            )
+        if step % config.training.checkpoint_every == 0:
+            save_checkpoint(state, out, step=step)
+        if step % config.training.eval_every == 0 or step == config.training.max_steps:
+            validation_metrics = _aggregate_eval_metrics_by_trajectory(
+                state,
+                validation_ids,
+                batches_for_trajectory=lambda trajectory_id: _snapshot_batches(
+                    config,
+                    repeat=False,
+                    trajectory_ids=(trajectory_id,),
+                    normalization_stats=normalization_stats,
+                ),
+                plan=resolve_parallel_mode(
+                    config.parallel.model_copy(update={"mode": "single"}),
+                    batch_size=config.data.batch_size,
+                ),
+                step_fn=_eval_direct_diagnostic_step,
+            )
+            if "flux_mse" in validation_metrics:
+                validation_metrics["flux_rmse"] = float(np.sqrt(max(validation_metrics["flux_mse"], 0.0)))
+                selection_value = validation_metrics["flux_rmse"]
+                selection_name = "validation_flux_rmse"
+            else:
+                selection_value = validation_metrics["diagnostics"]
+                selection_name = "validation_diagnostic_loss"
+            logger.log({"step": step, **validation_metrics}, prefix="validation")
+            if selection_value < best_metric:
+                best_metric = selection_value
+                best_step = step
+                best_checkpoint = save_checkpoint(state, out, step=step)
+
+    final_checkpoint = save_checkpoint(state, out, step=int(state.step))
+    selected_checkpoint = best_checkpoint or final_checkpoint
+    summary = {
+        "artifact_role": "direct_diagnostic_checkpoint",
+        "baseline": "same_time_snapshot_to_diagnostics",
+        "checkpoint": str(selected_checkpoint),
+        "checkpoint_step": best_step or int(state.step),
+        "checkpoint_sha256": _sha256_file(_checkpoint_pickle(selected_checkpoint)),
+        "checkpoint_selection": selection_name,
+        "best_validation_metric": best_metric,
+        "train_trajectory_ids": list(train_ids),
+        "validation_trajectory_ids": list(validation_ids),
+        "test_split_inspected": False,
+        "last_minibatch": {key: float(value) for key, value in last_metrics.items()},
+        "train_aggregate": {key: value / train_examples for key, value in train_totals.items()},
+        "validation": validation_metrics,
+        "actual_learning_rate": _scheduled_learning_rate(config, int(state.step)),
+        **_protocol_fields(
+            config,
+            train_ids,
+            aggregation="trajectory_balanced_validation",
+            universe_trajectory_ids=universe_ids,
+        ),
     }
     if logger.wandb_status().get("requested"):
         summary["wandb"] = logger.wandb_status()
@@ -703,7 +1127,7 @@ def _encoder_params_for_embedding(
     config: ExperimentConfig,
     *,
     expected_universe_ids: tuple[str, ...],
-) -> tuple[Any, Any]:
+) -> tuple[Any, Any, Path]:
     state, model = _init_encoder_state(config)
     del state
     checkpoint_path = config.latent_cache.encoder_checkpoint_path
@@ -722,7 +1146,42 @@ def _encoder_params_for_embedding(
         require_complete=_requires_complete_protocol(config),
     )
     payload = load_checkpoint(ckpt)
-    return model, _encoder_apply_params(payload["params"])
+    return model, _encoder_apply_params(payload["params"]), ckpt.resolve()
+
+
+def _load_normalization_stats(path: str | Path) -> NormalizationStats:
+    with np.load(path) as payload:
+        if "mean" not in payload or "std" not in payload:
+            raise ValueError(f"normalization artifact is missing mean/std arrays: {path}")
+        return NormalizationStats(
+            mean=np.asarray(payload["mean"], dtype=np.float32),
+            std=np.asarray(payload["std"], dtype=np.float32),
+        )
+
+
+def _embedding_normalization(
+    config: ExperimentConfig,
+    checkpoint: Path,
+) -> tuple[NormalizationStats | None, dict[str, NormalizationStats], dict[str, Any]]:
+    mode = config.data.normalization.mode
+    metadata: dict[str, Any] = {"snapshot_normalization_mode": mode}
+    if mode in {"none", "sample"}:
+        return None, {}, metadata
+    if mode == "trajectory":
+        raise ValueError(
+            "trajectory normalization cannot be re-fit while embedding held-out trajectories; "
+            "use training-derived dataset/fixed stats or disable normalization"
+        )
+    if mode == "fixed":
+        return _normalization_stats(config), {}, metadata
+    artifact = _checkpoint_sidecar(checkpoint, "normalization_stats.npz")
+    metadata.update(
+        {
+            "snapshot_normalization_stats": str(artifact.resolve()),
+            "snapshot_normalization_sha256": _sha256_file(artifact),
+        }
+    )
+    return _load_normalization_stats(artifact), {}, metadata
 
 
 def _encoder_apply_params(params: Any) -> Any:
@@ -759,15 +1218,17 @@ def embed_dataset(config: ExperimentConfig, *, dry_run: bool = False) -> dict[st
     out = _output_dir(config)
     write_run_metadata(out, config=config.model_dump(mode="json"))
     (out / "config_resolved.yaml").write_text(config_to_yaml(config), encoding="utf-8")
-    model, params = _encoder_params_for_embedding(config, expected_universe_ids=trajectory_ids)
-    cache_path = Path(config.latent_cache.path) if config.latent_cache.path else out / "latent_cache.h5"
-
-    encoder_checkpoint_path = str(
-        config.latent_cache.encoder_checkpoint_path or latest_checkpoint(config.output_dir) or ""
+    model, params, encoder_checkpoint = _encoder_params_for_embedding(
+        config, expected_universe_ids=trajectory_ids
     )
+    cache_path = Path(config.latent_cache.path) if config.latent_cache.path else out / "latent_cache.h5"
+    encoder_checkpoint_path = str(encoder_checkpoint)
+    stats, trajectory_stats, normalization_lineage = _embedding_normalization(config, encoder_checkpoint)
     cache_protocol = {
         "artifact_role": "latent_cache",
         "encoder_checkpoint": encoder_checkpoint_path,
+        "encoder_checkpoint_sha256": _sha256_file(_checkpoint_pickle(encoder_checkpoint)),
+        **normalization_lineage,
         **_protocol_fields(
             config,
             trajectory_ids,
@@ -782,8 +1243,6 @@ def embed_dataset(config: ExperimentConfig, *, dry_run: bool = False) -> dict[st
         encoder_checkpoint_path=encoder_checkpoint_path,
         protocol_metadata=cache_protocol,
     )
-    stats = _normalization_stats(config)
-    trajectory_stats = _trajectory_normalization_stats(config, trajectory_ids)
     for trajectory_id in trajectory_ids:
         snapshots = []
         flux_rows = []
@@ -921,10 +1380,13 @@ def _cache_train_eval_ids(
 
 def _latent_normalization_trajectory_ids(cache: LatentCacheDataset, config: ExperimentConfig) -> tuple[str, ...]:
     ids = _cache_trajectory_ids(cache, config)
-    if config.latent_cache.latent_normalization_split == "all" or len(ids) < 2:
+    if len(ids) < 2:
         return ids
-    if config.latent_cache.latent_normalization_split == "selected":
-        return _selected_cache_trajectory_ids(cache, config)
+    if config.latent_cache.latent_normalization_split != "train":
+        raise ValueError(
+            "latent normalization must be fit on the canonical training split; "
+            "latent_normalization_split='all'/'selected' can leak held-out trajectories"
+        )
     return split_trajectory_ids(ids, seed=config.data.seed)["train"]
 
 
@@ -941,6 +1403,38 @@ def _latent_normalization_stats(
     std = np.std(z, axis=0, dtype=np.float32)
     std = np.maximum(std, config.latent_cache.latent_normalization_epsilon).astype(np.float32)
     return mean.astype(np.float32), std
+
+
+def _save_latent_normalization_stats(
+    stats: tuple[np.ndarray, np.ndarray] | None,
+    output_dir: str | Path,
+) -> Path | None:
+    if stats is None:
+        return None
+    path = Path(output_dir) / "latent_normalization_stats.npz"
+    np.savez(path, mean=stats[0].astype(np.float32), std=stats[1].astype(np.float32))
+    return path
+
+
+def _sequence_checkpoint_latent_stats(
+    checkpoint: str | Path,
+) -> tuple[np.ndarray, np.ndarray] | None:
+    artifacts = _checkpoint_run_artifacts(checkpoint)
+    if artifacts is None:
+        raise ValueError("sequence checkpoint is missing config/metrics required for normalization lineage")
+    config_payload, metrics = artifacts
+    latent_cache = config_payload.get("latent_cache")
+    mode = latent_cache.get("latent_normalization") if isinstance(latent_cache, Mapping) else None
+    if mode == "none":
+        return None
+    if mode != "cache":
+        raise ValueError(f"sequence checkpoint has unsupported latent normalization mode {mode!r}")
+    artifact = _checkpoint_sidecar(checkpoint, "latent_normalization_stats.npz")
+    expected_hash = metrics.get("latent_normalization_sha256")
+    if not isinstance(expected_hash, str) or _sha256_file(artifact) != expected_hash:
+        raise ValueError("sequence checkpoint latent-normalization artifact hash mismatch")
+    loaded = _load_normalization_stats(artifact)
+    return loaded.mean, loaded.std
 
 
 def _normalize_latents(values: np.ndarray, stats: tuple[np.ndarray, np.ndarray] | None) -> np.ndarray:
@@ -1017,11 +1511,22 @@ def _shape_correlation(pred: jax.Array, target: jax.Array, *, eps: float) -> jax
     return numerator / (pred_norm * target_norm)
 
 
-def _sequence_batches(config: ExperimentConfig, cache_path: Path, *, repeat: bool = True) -> Iterator[dict[str, Any]]:
+def _sequence_batches(
+    config: ExperimentConfig,
+    cache_path: Path,
+    *,
+    repeat: bool = True,
+    trajectory_ids: tuple[str, ...] | None = None,
+    latent_stats: tuple[np.ndarray, np.ndarray] | None | object = _UNSET,
+) -> Iterator[dict[str, Any]]:
     cache = LatentCacheDataset(cache_path)
-    latent_stats = _latent_normalization_stats(cache, config)
+    if latent_stats is _UNSET:
+        latent_stats = _latent_normalization_stats(cache, config)
+    if latent_stats is not None and not isinstance(latent_stats, tuple):
+        raise TypeError("latent_stats must be a (mean, std) tuple or None")
     windows: list[tuple[np.ndarray, np.ndarray]] = []
-    for trajectory_id in _selected_cache_trajectory_ids(cache, config):
+    selected_ids = _selected_cache_trajectory_ids(cache, config) if trajectory_ids is None else trajectory_ids
+    for trajectory_id in selected_ids:
         starts = valid_sequence_starts(
             cache,
             trajectory_id,
@@ -1096,7 +1601,20 @@ def train_sequence(config: ExperimentConfig, *, dry_run: bool = False) -> dict[s
     if config.parallel.log_device_summary:
         write_device_report(out, config=config.parallel, plan=plan)
     cache_path = _latent_cache_for(config)
-    first_batch = next(_sequence_batches(config, cache_path, repeat=False))
+    encoder_checkpoint = _validate_cache_encoder_lineage(config, cache_path)
+    train_config = train_config.model_copy(
+        update={
+            "latent_cache": train_config.latent_cache.model_copy(
+                update={"encoder_checkpoint_path": str(encoder_checkpoint)}
+            )
+        }
+    )
+    write_run_metadata(out, config=train_config.model_dump(mode="json"))
+    (out / "config_resolved.yaml").write_text(config_to_yaml(train_config), encoding="utf-8")
+    cache = LatentCacheDataset(cache_path)
+    latent_stats = _latent_normalization_stats(cache, train_config)
+    latent_stats_path = _save_latent_normalization_stats(latent_stats, out)
+    first_batch = next(_sequence_batches(train_config, cache_path, repeat=False, latent_stats=latent_stats))
     if config.training.max_steps == 0:
         metrics = {
             "dry_run": True,
@@ -1109,37 +1627,91 @@ def train_sequence(config: ExperimentConfig, *, dry_run: bool = False) -> dict[s
     metrics: Mapping[str, Any] = {}
     state = _replicated_if_needed(state, plan)
     step_fn = make_pmap_sequence_train_step(plan.axis_name) if plan.uses_pmap else train_sequence_step
-    batches = _sequence_batches(config, cache_path, repeat=True)
+    eval_fn = make_pmap_sequence_eval_step(plan.axis_name) if plan.uses_pmap else eval_sequence_step
+    batches = _sequence_batches(train_config, cache_path, repeat=True, latent_stats=latent_stats)
+    universe_ids = tuple(cache.trajectory_ids())
+    validation_ids = split_trajectory_ids(universe_ids, seed=config.data.seed)["val"] if len(universe_ids) > 1 else ()
+    train_totals: dict[str, float] = {}
+    train_examples = 0
+    best_metric = float("inf")
+    best_step: int | None = None
+    best_checkpoint: Path | None = None
+    latest_validation: dict[str, float] = {}
     step_value = 0
     while step_value < config.training.max_steps:
-        batch = _prepare_parallel_batch(next(batches), plan)
+        raw_batch = next(batches)
+        raw_batch_size = _batch_size(raw_batch)
+        batch = _prepare_parallel_batch(raw_batch, plan)
         if batch is None:
             continue
         state, metrics = step_fn(state, batch)
         host_state = _host_state(state, plan)
         host_metrics = _host_metrics(metrics, plan)
         step_value = int(host_state.step)
+        for key, value in host_metrics.items():
+            train_totals[key] = train_totals.get(key, 0.0) + float(value) * raw_batch_size
+        train_examples += raw_batch_size
         row = {
             "step": step_value,
-            "lr": train_config.training.learning_rate,
+            "lr": _scheduled_learning_rate(train_config, step_value),
             **{k: float(v) for k, v in host_metrics.items()},
         }
         if step_value % config.training.log_every == 0 or step_value == config.training.max_steps:
             logger.log(row, prefix="train")
         if step_value % config.training.checkpoint_every == 0:
             save_checkpoint(host_state, out, step=step_value)
+        should_validate = bool(validation_ids) and (
+            step_value % config.training.eval_every == 0 or step_value == config.training.max_steps
+        )
+        if should_validate:
+            latest_validation = _aggregate_eval_metrics_by_trajectory(
+                state,
+                validation_ids,
+                batches_for_trajectory=lambda trajectory_id: _sequence_batches(
+                    train_config,
+                    cache_path,
+                    repeat=False,
+                    trajectory_ids=(trajectory_id,),
+                    latent_stats=latent_stats,
+                ),
+                plan=plan,
+                step_fn=eval_fn,
+            )
+            latest_validation["latent_rmse"] = float(
+                np.sqrt(max(latest_validation["latent_mse"], 0.0))
+            )
+            logger.log({"step": step_value, **latest_validation}, prefix="validation")
+            if latest_validation["latent_rmse"] < best_metric:
+                best_metric = latest_validation["latent_rmse"]
+                best_step = step_value
+                best_checkpoint = save_checkpoint(host_state, out, step=step_value)
     final_state = _host_state(state, plan)
     metrics = _host_metrics(metrics, plan)
-    ckpt = save_checkpoint(final_state, out, step=int(final_state.step))
-    cache = LatentCacheDataset(cache_path)
-    universe_ids = tuple(cache.trajectory_ids())
-    selected_ids = _selected_cache_trajectory_ids(cache, config)
+    final_checkpoint = save_checkpoint(final_state, out, step=int(final_state.step))
+    ckpt = best_checkpoint or final_checkpoint
+    if best_step is None:
+        best_step = int(final_state.step)
+    selected_ids = _selected_cache_trajectory_ids(cache, train_config)
+    aggregate_metrics = {key: value / train_examples for key, value in train_totals.items()}
     summary = {
         "artifact_role": "sequence_checkpoint",
         "step": int(final_state.step),
         "checkpoint": str(ckpt),
+        "checkpoint_step": best_step,
+        "checkpoint_sha256": _sha256_file(_checkpoint_pickle(ckpt)),
+        "checkpoint_selection": (
+            "minimum_validation_latent_rmse" if validation_ids else "final_step_no_validation_split"
+        ),
+        "best_validation_metric": None if not np.isfinite(best_metric) else best_metric,
         "latent_cache": str(cache_path),
-        "encoder_checkpoint": config.latent_cache.encoder_checkpoint_path,
+        "latent_cache_sha256": _sha256_file(cache_path),
+        "encoder_checkpoint": str(encoder_checkpoint),
+        "encoder_checkpoint_sha256": _sha256_file(_checkpoint_pickle(encoder_checkpoint)),
+        "latent_normalization_sha256": _sha256_file(latent_stats_path) if latent_stats_path else None,
+        "last_minibatch": {k: float(v) for k, v in metrics.items()},
+        "train_aggregate": aggregate_metrics,
+        "validation": latest_validation,
+        "actual_learning_rate": _scheduled_learning_rate(train_config, int(final_state.step)),
         **_protocol_fields(
             config,
             selected_ids,
@@ -1168,6 +1740,7 @@ def evaluate_flux_head(config: ExperimentConfig, *, dry_run: bool = False) -> di
         }
 
     cache_path = _latent_cache_for(config)
+    encoder_checkpoint = _optional_cache_encoder_lineage(config, cache_path)
     cache = LatentCacheDataset(cache_path)
     configured_ids = _cache_trajectory_ids(cache, config)
     train_ids, eval_ids, eval_split = _cache_train_eval_ids(cache, config)
@@ -1182,7 +1755,7 @@ def evaluate_flux_head(config: ExperimentConfig, *, dry_run: bool = False) -> di
     summary["configured_trajectories"] = list(configured_ids)
     summary["num_configured_trajectories"] = len(configured_ids)
     summary["latent_cache"] = str(cache_path)
-    summary["encoder_checkpoint"] = config.latent_cache.encoder_checkpoint_path
+    summary["encoder_checkpoint"] = str(encoder_checkpoint) if encoder_checkpoint else None
     summary.update(
         _protocol_fields(
             config,
@@ -1221,6 +1794,7 @@ def plot_representation(config: ExperimentConfig, *, dry_run: bool = False) -> d
         }
 
     cache_path = _latent_cache_for(config)
+    encoder_checkpoint = _optional_cache_encoder_lineage(config, cache_path)
     cache = LatentCacheDataset(cache_path)
     configured_ids = _cache_trajectory_ids(cache, config)
     out = _output_dir(config)
@@ -1236,7 +1810,7 @@ def plot_representation(config: ExperimentConfig, *, dry_run: bool = False) -> d
         max_points=config.evaluation.representation_max_points,
     )
     summary["latent_cache"] = str(cache_path)
-    summary["encoder_checkpoint"] = config.latent_cache.encoder_checkpoint_path
+    summary["encoder_checkpoint"] = str(encoder_checkpoint) if encoder_checkpoint else None
     summary.update(
         _protocol_fields(
             config,
@@ -1267,11 +1841,12 @@ def evaluate_rollout(config: ExperimentConfig, *, dry_run: bool = False) -> dict
         }
 
     cache_path = _latent_cache_for(config)
+    encoder_checkpoint = _validate_cache_encoder_lineage(config, cache_path)
     cache = LatentCacheDataset(cache_path)
     configured_ids = _cache_trajectory_ids(cache, config)
     selected_ids = _selected_cache_trajectory_ids(cache, config)
-    latent_stats = _latent_normalization_stats(cache, config)
     use_persistence = config.latent_cache.use_persistence_baseline
+    latent_stats = _latent_normalization_stats(cache, config) if use_persistence else None
     model = None
     params = None
     requested_metrics = set(config.evaluation.metrics)
@@ -1286,30 +1861,20 @@ def evaluate_rollout(config: ExperimentConfig, *, dry_run: bool = False) -> dict
     if diagnostic_model is None:
         if diagnostic_metrics_requested:
             diagnostic_warnings.append("diagnostic metrics requested but model diagnostics are disabled")
-    elif config.latent_cache.encoder_checkpoint_path:
-        encoder_ckpt_path = Path(config.latent_cache.encoder_checkpoint_path)
-        if encoder_ckpt_path.exists():
-            _validate_checkpoint_protocol(
-                encoder_ckpt_path,
-                expected_seed=config.data.seed,
-                expected_backend=config.data.backend,
-                expected_universe_ids=tuple(cache.trajectory_ids()),
-                expected_artifact_role="encoder_checkpoint",
-                role="encoder checkpoint",
-                require_complete=_requires_complete_protocol(config),
-            )
-            encoder_params = load_checkpoint(encoder_ckpt_path)["params"]
-            diagnostic_params = _diagnostic_params_from_encoder_params(encoder_params)
-            if diagnostic_params is None and diagnostic_metrics_requested:
-                diagnostic_warnings.append(
-                    "diagnostic metrics requested but encoder checkpoint has no diagnostic_heads params"
-                )
-        elif diagnostic_metrics_requested:
-            diagnostic_warnings.append(
-                f"diagnostic metrics requested but encoder checkpoint not found: {encoder_ckpt_path}"
-            )
     elif diagnostic_metrics_requested:
-        diagnostic_warnings.append("diagnostic metrics requested but latent_cache.encoder_checkpoint_path is unset")
+        _validate_checkpoint_protocol(
+            encoder_checkpoint,
+            expected_seed=config.data.seed,
+            expected_backend=config.data.backend,
+            expected_universe_ids=tuple(cache.trajectory_ids()),
+            expected_artifact_role="encoder_checkpoint",
+            role="encoder checkpoint",
+            require_complete=_requires_complete_protocol(config),
+        )
+        encoder_params = load_checkpoint(encoder_checkpoint)["params"]
+        diagnostic_params = _diagnostic_params_from_encoder_params(encoder_params)
+        if diagnostic_params is None and diagnostic_metrics_requested:
+            raise ValueError("diagnostic metrics requested but cache-lineage encoder has no diagnostic_heads params")
     diagnostic_heads_loaded = diagnostic_model is not None and diagnostic_params is not None
     if not use_persistence:
         if config.model.sequence is None or config.latent_cache.sequence_checkpoint_path is None:
@@ -1323,8 +1888,9 @@ def evaluate_rollout(config: ExperimentConfig, *, dry_run: bool = False) -> dict
             role="sequence checkpoint",
             require_complete=_requires_complete_protocol(config),
             expected_cache_path=cache_path,
-            expected_encoder_checkpoint=config.latent_cache.encoder_checkpoint_path,
+            expected_encoder_checkpoint=encoder_checkpoint,
         )
+        latent_stats = _sequence_checkpoint_latent_stats(config.latent_cache.sequence_checkpoint_path)
         model = build_sequence_model(config.model.sequence)
         params = load_checkpoint(config.latent_cache.sequence_checkpoint_path)["params"]
     preds = []
@@ -1528,7 +2094,7 @@ def evaluate_rollout(config: ExperimentConfig, *, dry_run: bool = False) -> dict
     summary["num_selected_trajectories"] = np.asarray(len(selected_ids), dtype=np.int32)
     summary["num_rollout_windows"] = np.asarray(len(preds), dtype=np.int32)
     summary["latent_cache"] = str(cache_path)
-    summary["encoder_checkpoint"] = config.latent_cache.encoder_checkpoint_path or ""
+    summary["encoder_checkpoint"] = str(encoder_checkpoint)
     summary["sequence_checkpoint"] = config.latent_cache.sequence_checkpoint_path or "persistence_baseline"
     summary["rollout_horizon"] = np.asarray(config.evaluation.rollout_steps, dtype=np.int32)
     summary.update(

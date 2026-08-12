@@ -68,3 +68,41 @@ class DiagnosticHeads(nn.Module):
             spectra[key] = nn.Dense(dim, name=module_name)(y)
 
         return DiagnosticPredictions(flux=flux, spectra=spectra)
+
+
+class DirectSnapshotDiagnosticBaseline(nn.Module):
+    """Predict same-time diagnostics directly from channel-first 5D snapshots.
+
+    This intentionally has no learned latent bottleneck or temporal context.
+    Per-channel spatial mean, RMS, and maximum magnitude keep the parameter
+    count independent of the five-dimensional grid size, so the control stays
+    feasible for server snapshots. It distinguishes same-time diagnostic
+    learnability from representation and rollout quality.
+    """
+
+    flux_dim: int = 0
+    spectra_dims: Mapping[str, int] = struct.field(default_factory=dict)
+    hidden_dims: tuple[int, ...] = (128,)
+    dropout_rate: float = 0.0
+    activation: str = "gelu"
+
+    @nn.compact
+    def __call__(self, x: Array, *, train: bool) -> DiagnosticPredictions:
+        if x.ndim != 7:
+            raise ValueError(
+                "Expected channel-first snapshots with shape [B, C, S1, S2, S3, S4, S5], "
+                f"got shape {x.shape}."
+            )
+        spatial_axes = tuple(range(2, x.ndim))
+        channel_mean = jnp.mean(x, axis=spatial_axes)
+        channel_rms = jnp.sqrt(jnp.mean(jnp.square(x), axis=spatial_axes))
+        channel_max_magnitude = jnp.max(jnp.abs(x), axis=spatial_axes)
+        features = jnp.concatenate((channel_mean, channel_rms, channel_max_magnitude), axis=-1)
+        return DiagnosticHeads(
+            flux_dim=self.flux_dim,
+            spectra_dims=self.spectra_dims,
+            hidden_dims=self.hidden_dims,
+            dropout_rate=self.dropout_rate,
+            activation=self.activation,
+            name="direct_diagnostic_heads",
+        )(features, train=train)

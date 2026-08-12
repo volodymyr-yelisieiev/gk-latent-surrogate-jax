@@ -10,6 +10,7 @@ run, verify, and extend the latent surrogate pipeline.
 | `data_contract.md` | channel-first snapshot, latent cache, and diagnostic target contracts |
 | `metrics.md` | rollout, latent, flux, and spectra metric definitions |
 | `experiment_lifecycle.md` | expected config, output, checkpoint, and report flow |
+| `experiment_provenance.md` | frozen protocol, accepted-run linkage, and release evidence rules |
 | `verification_matrix.md` | local checks, smoke checks, build gate, and CI expectations |
 | `small_validation_experiment.md` | 3-5 trajectory validation run with flux RMSE, baseline, and plots |
 | `medium_guppy_experiment_report.md` | medium-scale evidence, W&B links, metrics, and framing |
@@ -23,7 +24,7 @@ run, verify, and extend the latent surrogate pipeline.
 | document | purpose |
 | --- | --- |
 | `server_gpu_setup.md` | GPU/server execution and KvikIO setup notes |
-| `wandb_tracking.md` | optional W&B tracking config, offline mode, and evidence rules |
+| `wandb_tracking.md` | original W&B telemetry, grouping, public evidence, and invalidated-run rules |
 | `hardware_profiles.md` | portable hardware assumptions and config boundaries |
 | `real_data_binding_checklist.md` | real-data adapter requirements and missing-detail policy |
 | `gyroswin_comparison.md` | fair-comparison policy without fabricated numbers |

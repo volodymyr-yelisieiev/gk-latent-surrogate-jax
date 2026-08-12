@@ -30,13 +30,21 @@ def horizon_plot(
 ) -> None:
     fig, ax = plt.subplots(figsize=(6.4, 3.8), constrained_layout=True)
     horizon = np.arange(1, len(model[key]) + 1)
-    for metrics, label, color in (
-        (baseline, "Persistence", "#6B7280"),
-        (model, "Normalized Transformer", "#006C93"),
+    for metrics, label, color, marker, linestyle in (
+        (baseline, "Persistence", "#5F5F5F", "s", "--"),
+        (model, "Normalized Transformer", "#0072B2", "o", "-"),
     ):
         values = np.asarray(metrics[key], dtype=float)
         std = np.asarray(metrics[f"{key.removesuffix('_by_step')}_std_by_step"], dtype=float)
-        ax.plot(horizon, values, marker="o", linewidth=2, color=color, label=label)
+        ax.plot(
+            horizon,
+            values,
+            marker=marker,
+            linestyle=linestyle,
+            linewidth=2,
+            color=color,
+            label=label,
+        )
         ax.fill_between(horizon, np.maximum(0.0, values - std), values + std, color=color, alpha=0.13)
     ax.set(xlabel="Rollout horizon", ylabel=ylabel, xticks=horizon)
     ax.grid(alpha=0.25)
@@ -50,8 +58,11 @@ def paired_flux_plot(model: dict[str, object], baseline: dict[str, object]) -> N
     baseline_values = np.asarray(baseline["flux_rmse_by_trajectory"], dtype=float)
     fig, ax = plt.subplots(figsize=(5.4, 3.8), constrained_layout=True)
     for index, (before, after) in enumerate(zip(baseline_values, model_values, strict=True), start=1):
-        color = "#248A3D" if after < before else "#B45309"
-        ax.plot([0, 1], [before, after], marker="o", color=color, alpha=0.9)
+        improved = after < before
+        color = "#009E73" if improved else "#D55E00"
+        marker = "o" if improved else "^"
+        linestyle = "-" if improved else "--"
+        ax.plot([0, 1], [before, after], marker=marker, linestyle=linestyle, color=color, alpha=0.9)
         ax.annotate(str(index), (1.03, after), va="center", fontsize=8)
     ax.set(
         xlim=(-0.15, 1.22),
@@ -61,6 +72,34 @@ def paired_flux_plot(model: dict[str, object], baseline: dict[str, object]) -> N
     )
     ax.grid(axis="y", alpha=0.25)
     fig.savefig(FIGURES / "paired_test_flux_rmse.png", dpi=220)
+    plt.close(fig)
+
+
+def spectra_horizon_plot(model: dict[str, object], baseline: dict[str, object]) -> None:
+    """Plot each spectrum separately so target scale does not hide one series."""
+
+    fig, axes = plt.subplots(1, 2, figsize=(7.2, 3.4), constrained_layout=True)
+    for ax, target, title in zip(axes, ("kyspec", "fluxspec"), ("kyspec", "fluxspec"), strict=True):
+        key = f"spectra_{target}_mse_by_step"
+        horizon = np.arange(1, len(model[key]) + 1)
+        for metrics, label, color, marker, linestyle in (
+            (baseline, "Persistence", "#5F5F5F", "s", "--"),
+            (model, "Normalized Transformer", "#0072B2", "o", "-"),
+        ):
+            values = np.asarray(metrics[key], dtype=float)
+            ax.plot(
+                horizon,
+                values,
+                marker=marker,
+                linestyle=linestyle,
+                linewidth=2,
+                color=color,
+                label=label,
+            )
+        ax.set(title=title, xlabel="Rollout horizon", ylabel="MSE", xticks=horizon)
+        ax.grid(alpha=0.25)
+    axes[0].legend(frameon=False)
+    fig.savefig(FIGURES / "verified_spectra_mse_by_step.png", dpi=220)
     plt.close(fig)
 
 
@@ -82,13 +121,7 @@ def main() -> None:
         ylabel="Flux MSE",
         output="verified_flux_mse_by_step.png",
     )
-    horizon_plot(
-        model,
-        baseline,
-        key="spectra_mse_by_step",
-        ylabel="Mean spectra MSE",
-        output="verified_spectra_mse_by_step.png",
-    )
+    spectra_horizon_plot(model, baseline)
     paired_flux_plot(model, baseline)
 
 

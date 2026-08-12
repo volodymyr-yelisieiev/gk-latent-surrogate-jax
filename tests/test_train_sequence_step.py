@@ -21,6 +21,27 @@ from gk_surrogate.training.state import TrainState
 from gk_surrogate.training.train_sequence import eval_sequence_step, train_sequence_step
 
 
+def test_latent_normalization_rejects_held_out_fit(repo_root, tmp_path):
+    cache_path = tmp_path / "latent_cache.h5"
+    writer = LatentCacheWriter(cache_path, latent_dim=32)
+    for index in range(4):
+        writer.write_trajectory(f"traj-{index}", np.full((8, 32), index, dtype=np.float32))
+    config = load_config(repo_root / "configs/experiment/smoke_sequence.yaml", command="train-sequence")
+    config = config.model_copy(
+        update={
+            "latent_cache": config.latent_cache.model_copy(
+                update={
+                    "path": str(cache_path),
+                    "latent_normalization": "cache",
+                    "latent_normalization_split": "all",
+                }
+            )
+        }
+    )
+    with pytest.raises(ValueError, match="canonical training split"):
+        _latent_normalization_stats(LatentCacheDataset(cache_path), config)
+
+
 def test_train_sequence_step_changes_params_and_loss_finite(repo_root, tmp_path, params_changed):
     config = load_config(repo_root / "configs/experiment/smoke_sequence.yaml", command="train-sequence")
     cache_path = tmp_path / "latent_cache.h5"

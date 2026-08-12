@@ -34,12 +34,12 @@ within three sentences.
 
   Persistence, GRU, and Transformer candidates are evaluated on validation, where the learned model
   is selected by flux RMSE. Only that fixed candidate and persistence are then rolled out for eight
-  steps on the locked test trajectories with trajectory-balanced metrics.
+  steps on the retrospective test trajectories with trajectory-balanced metrics.
 
   \item \textbf{What evidence/data (values for the variables) were obtained?}
 
   The medium cache contains 51 trajectories and 1,173 latent vectors, split 41/5/5 into
-  train/validation/test with seed 52. The locked test contains 40 eight-step windows from five
+  train/validation/test with seed 52. The test contains 40 eight-step windows from five
   trajectories that were not used for encoder or sequence training.
 
   \item \textbf{What were the results of the analyses?}
@@ -50,9 +50,9 @@ within three sentences.
 
   \item \textbf{How did the analyses answer the central question?}
 
-  The learned model lowers the predeclared primary flux-RMSE point estimate by 4.70\% over
-  persistence. The answer is positive for this fixed dataset subset, representation, training
-  budget, and horizon, but the paired interval includes zero and does not establish significance.
+  The learned model has a 4.70\% lower primary flux-RMSE point estimate than persistence in this
+  retrospective realization. The paired interval includes zero, so the result does not establish
+  significance, repeatability, or broader superiority.
 
   \item \textbf{What does this answer tell us about the broader field?}
 

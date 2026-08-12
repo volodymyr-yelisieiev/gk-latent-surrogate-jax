@@ -2,7 +2,7 @@ PYTHON ?= $(shell if [ -x .venv/bin/python ]; then echo .venv/bin/python; elif [
 UV ?= uv
 RUN ?= $(UV) run --python $(PYTHON) --extra dev
 
-.PHONY: install install-dev agent-check test test-fast lint format type-check check smoke-encoder smoke-simsiam smoke-sequence smoke-all build clean
+.PHONY: install install-dev agent-check test test-fast lint format type-check check smoke-encoder smoke-direct-diagnostics smoke-simsiam smoke-sequence smoke-all build clean
 
 install:
 	$(UV) sync --python $(PYTHON)
@@ -33,6 +33,9 @@ check: agent-check lint type-check test-fast
 smoke-encoder:
 	JAX_PLATFORM_NAME=cpu $(RUN) gks train-encoder --config configs/experiment/smoke_encoder_supervised.yaml
 
+smoke-direct-diagnostics:
+	JAX_PLATFORM_NAME=cpu $(RUN) gks train-direct-diagnostics --config configs/experiment/smoke_encoder_supervised.yaml --output-dir outputs/smoke_direct_diagnostics
+
 smoke-simsiam:
 	JAX_PLATFORM_NAME=cpu $(RUN) gks train-encoder --config configs/experiment/smoke_encoder_simsiam.yaml
 
@@ -42,6 +45,7 @@ smoke-sequence:
 smoke-all:
 	JAX_PLATFORM_NAME=cpu $(RUN) gks inspect-data --config configs/data/tiny_dummy.yaml --dry-run
 	JAX_PLATFORM_NAME=cpu $(RUN) gks train-encoder --config configs/experiment/smoke_encoder_supervised.yaml
+	JAX_PLATFORM_NAME=cpu $(RUN) gks train-direct-diagnostics --config configs/experiment/smoke_encoder_supervised.yaml --output-dir outputs/smoke_direct_diagnostics
 	JAX_PLATFORM_NAME=cpu $(RUN) gks train-encoder --config configs/experiment/smoke_encoder_simsiam.yaml
 	JAX_PLATFORM_NAME=cpu $(RUN) gks embed-dataset --config configs/experiment/smoke_embed_dataset.yaml
 	JAX_PLATFORM_NAME=cpu $(RUN) gks evaluate-flux-head --config configs/experiment/smoke_evaluate_flux_head.yaml

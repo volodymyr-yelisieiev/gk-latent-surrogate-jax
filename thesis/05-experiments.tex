@@ -41,8 +41,10 @@ The principal comparison uses persistence, GRU, causal Transformer, cache-normal
 cache-normalized causal Transformer. Each learned model has its own checkpoint, but the encoder,
 latent cache, validation trajectories, context length, forecast horizon, diagnostic heads, and
 aggregation are fixed. The four learned candidates and persistence are first evaluated on the
-validation split. Flux RMSE selects the strongest learned candidate; the locked test is then opened
-once for that candidate and the pre-declared persistence reference. The final test comparison is
+validation split. Flux RMSE selects the strongest learned candidate; that candidate and the
+predeclared persistence reference are then compared on the test manifest. Because the manifest was
+inspected in more than one retained evaluation and is known during this audit, the result is
+retrospective rather than a prospective locked test. The test comparison is
 summarized in \autoref{tab:main-results}.
 
 All learned sequence models train for 500 steps. The GRU has one 256-unit layer. The Transformer
@@ -55,9 +57,10 @@ candidate'' therefore means the lowest observed validation RMSE among these sing
 An integrity audit found that an earlier exploratory comparison had combined an encoder/cache made
 with split seed 52 and downstream evaluations made with different split seeds. Four of five nominal
 test trajectories in one such evaluation had therefore been visible during encoder training. Those
-numbers are excluded from scientific evidence. The accepted experiment uses seed 52 for encoder,
-cache, sequence training, validation selection, and locked testing, with stored trajectory-manifest
-hashes checked at the pipeline boundaries.
+numbers are excluded from empirical evidence. The retained experiment uses trajectory-split seed 52
+for encoder training, cache construction, sequence training, validation selection, and test
+evaluation, with stored trajectory-manifest hashes checked at the pipeline boundaries. The separate
+optimization seeds remain 53 for GRU runs and 54 for Transformer runs as stated above.
 
 \section{Metrics}
 
@@ -68,10 +71,13 @@ are retained as secondary diagnostics. Stability requires finite outputs over th
 
 Metrics are computed per horizon and aggregated with equal trajectory weights. This matters because
 overlapping windows are correlated and the number of valid windows can differ across trajectories.
-The reported test result therefore describes the mean of five trajectory-level evaluations rather
-than treating every overlapping window as an independent physical realization. A descriptive
-paired interval is computed from the five trajectory-level differences; overlapping windows are not
-treated as independent samples, and no significance claim is made.
+The headline flux RMSE is the square root of the mean trajectory MSE across trajectories and
+horizons. It is not the arithmetic mean of the five per-trajectory RMSE values. The paired analysis
+uses those five per-trajectory RMSE values and therefore targets a different estimand. Overlapping
+windows are not treated as independent physical realizations. Its 95\% t interval is descriptive,
+contains no training-seed uncertainty, and is not used for a significance claim. Flux errors are
+reported in preprocessed target units because the retained artifact does not establish a physical
+unit.
 
 \section{Additional Experiments}
 

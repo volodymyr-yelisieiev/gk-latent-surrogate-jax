@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import math
+import pickle
 from pathlib import Path
 
 import numpy as np
@@ -34,6 +35,8 @@ def _write_rollout_cache(path: Path, *, seed: int = 42) -> None:
     encoder_run = path.parent / "encoder"
     encoder_checkpoint = encoder_run / "checkpoints" / "step_000001"
     encoder_checkpoint.mkdir(parents=True)
+    checkpoint_file = encoder_checkpoint / "checkpoint.pkl"
+    checkpoint_file.write_bytes(pickle.dumps({"step": 1, "params": {}}))
     train_ids = pipeline_module.split_trajectory_ids(trajectory_ids, seed=seed)["train"]
     (encoder_run / "config_resolved.json").write_text(
         json.dumps(
@@ -74,6 +77,7 @@ def _write_rollout_cache(path: Path, *, seed: int = 42) -> None:
         "universe_trajectory_ids": list(trajectory_ids),
         "universe_manifest_sha256": pipeline_module._trajectory_manifest_sha256(trajectory_ids),
         "encoder_checkpoint": str(encoder_checkpoint),
+        "encoder_checkpoint_sha256": pipeline_module._sha256_file(checkpoint_file),
     }
     cache_config = {
         "data": {"backend": "cyclone_kvikio", "seed": seed, "split": "all"},
@@ -148,7 +152,7 @@ def test_rollout_eval_outputs_metrics_json_csv_and_plot(repo_root, tmp_path):
     config = config.model_copy(
         update={
             "output_dir": str(tmp_path / "eval"),
-            "latent_cache": config.latent_cache.model_copy(
+        "latent_cache": config.latent_cache.model_copy(
                 update={
                     "path": str(tmp_path / "smoke_embed_dataset" / "latent_cache.h5"),
                     "encoder_checkpoint_path": enc["checkpoint"],
@@ -245,6 +249,7 @@ def test_rollout_eval_honors_configured_cache_trajectories(repo_root, tmp_path, 
                     "use_persistence_baseline": True,
                 }
             ),
+            "evaluation": config.evaluation.model_copy(update={"metrics": ("latent_mse",)}),
         }
     )
 
@@ -257,7 +262,7 @@ def test_rollout_eval_honors_configured_cache_trajectories(repo_root, tmp_path, 
     assert Path(result["metrics_json"]).exists()
 
 
-def test_rollout_eval_warns_and_continues_without_diagnostic_checkpoint(repo_root, tmp_path):
+def test_rollout_eval_uses_cache_lineage_without_configured_checkpoint(repo_root, tmp_path):
     enc_cfg = load_config(repo_root / "configs/experiment/smoke_encoder_supervised.yaml", command="train-encoder")
     enc_cfg = enc_cfg.model_copy(update={"output_dir": str(tmp_path / "enc")})
     from gk_surrogate.pipeline import train_encoder
@@ -292,13 +297,13 @@ def test_rollout_eval_warns_and_continues_without_diagnostic_checkpoint(repo_roo
         }
     )
     result = evaluate_rollout(config)
-    assert result["diagnostic_heads_loaded"] is False
+    assert result["diagnostic_heads_loaded"] is True
     assert result["diagnostic_metrics_requested"] is True
-    assert result["flux_metrics_computed"] is False
-    assert result["spectra_metrics_computed"] is False
-    assert result["diagnostic_warnings"]
-    assert "flux_mse_by_step" not in result
-    assert "spectra_mse_by_step" not in result
+    assert result["flux_metrics_computed"] is True
+    assert result["spectra_metrics_computed"] is True
+    assert result["diagnostic_warnings"] == []
+    assert "flux_mse_by_step" in result
+    assert "spectra_mse_by_step" in result
 
 
 def test_embed_dataset_accepts_simsiam_checkpoint(repo_root, tmp_path):
@@ -322,3 +327,37 @@ def test_embed_dataset_accepts_simsiam_checkpoint(repo_root, tmp_path):
     )
     result = embed_dataset(embed_cfg)
     assert Path(result["latent_cache"]).exists()
+
+
+def test_rollout_rejects_configured_encoder_mismatch(repo_root, tmp_path):
+    enc_cfg = load_config(repo_root / "configs/experiment/smoke_encoder_supervised.yaml", command="train-encoder")
+    enc_cfg = enc_cfg.model_copy(update={"output_dir": str(tmp_path / "enc")})
+    from gk_surrogate.pipeline import train_encoder
+
+    enc = train_encoder(enc_cfg)
+    embed_cfg = load_config(repo_root / "configs/experiment/smoke_embed_dataset.yaml", command="embed-dataset")
+    embed_cfg = embed_cfg.model_copy(
+        update={
+            "output_dir": str(tmp_path / "embed"),
+            "latent_cache": embed_cfg.latent_cache.model_copy(
+                update={"path": str(tmp_path / "embed/cache.h5"), "encoder_checkpoint_path": enc["checkpoint"]}
+            ),
+        }
+    )
+    embedded = embed_dataset(embed_cfg)
+    config = load_config(repo_root / "configs/experiment/smoke_evaluate_rollout.yaml", command="evaluate-rollout")
+    config = config.model_copy(
+        update={
+            "latent_cache": config.latent_cache.model_copy(
+                update={
+                    "path": embedded["latent_cache"],
+                    "encoder_checkpoint_path": str(tmp_path / "different-checkpoint"),
+                    "use_persistence_baseline": True,
+                }
+            )
+        }
+    )
+    import pytest
+
+    with pytest.raises(ValueError, match="does not match the latent cache lineage"):
+        evaluate_rollout(config)

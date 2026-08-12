@@ -11,16 +11,19 @@ or GPU hardware.
 
 The final experiment uses one canonical trajectory split from representation learning through
 evaluation. The cache-normalized Transformer was selected as the best learned model on validation
-flux RMSE and then evaluated once on a locked test split. It obtains flux RMSE 11.4255, compared with
+flux RMSE and then evaluated on a test split that is now reported retrospectively. It obtains flux
+RMSE 11.4255, compared with
 11.9889 for persistence, reducing the primary point estimate by 4.70\%. Flux MAE, latent MSE, and
-spectra relative error also decrease. The model improves per-trajectory flux RMSE in three of five
-cases, but the paired interval includes zero; the experiment therefore supports a bounded
-single-protocol improvement rather than a significance or general-superiority claim.
+aggregate spectra relative error also decrease, although the spectral shape correlation is
+essentially unchanged and the relative errors are large. The model improves per-trajectory flux RMSE in three of five
+cases, but the paired interval includes zero; the experiment therefore provides a
+single-realization point estimate rather than a significance, repeatability, or
+general-superiority claim.
 
-The result is bounded but useful. It shows that the selected representation and training budget can
-improve on a strong temporal baseline in one locked comparison, and it identifies encoder fidelity,
-repeated matched seeds, and strict validation-only selection as priorities for
-future work. The thesis makes no claim about full-field reconstruction, long-term forecasting,
-broad gyrokinetic generalization, solver speedup, or superiority to GyroSwin. Its main contribution
-is a reproducible and leakage-resistant experimental foundation on which those questions can be
-tested credibly.
+The selected representation and training budget produced a lower point estimate than a strong
+temporal baseline in this comparison. Matched seeds, an unseen test set or nested group
+cross-validation, and strict validation-only selection are required before making a broader model
+claim. The thesis makes no claim about full-field reconstruction, long-term forecasting, broad
+gyrokinetic generalization, solver speedup, or superiority to GyroSwin. Its main contribution is
+the implemented pipeline, its lineage checks, and a documented account of where the present
+evidence remains weak.

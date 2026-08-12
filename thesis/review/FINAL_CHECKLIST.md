@@ -1,9 +1,9 @@
 # Final Thesis Checklist
 
-Status: technically complete review draft. No external communication or submission has been
-performed.
+Status: review draft with unresolved scientific and external checks. No external communication or
+submission has been performed.
 
-## Completed autonomously
+## Present in the source
 
 - [x] Requirements from the IML BSc Thesis Seminar document mapped to the package.
 - [x] JKU report template v2.2 vendored with its license and font licenses.
@@ -13,12 +13,17 @@ performed.
 - [x] Nine-question story summary included as Appendix A, with no answer exceeding three sentences.
 - [x] Reproducibility appendix includes commands, artifact paths, hashes, and availability limits.
 - [x] Author--year bibliography included and compiled.
-- [x] Main numeric claims use the canonical split-seed-52 protocol, validation-only selection, and
-  locked test; flux RMSE is primary and the bounded 4.70% point-estimate improvement is accompanied
-  by a paired trajectory interval and explicit uncertainty limits.
+- [x] Main numeric claims use the internally consistent split-seed-52 reproduction and
+  validation-only selection. The test is labelled retrospective; flux RMSE is primary and the
+  4.70% point-estimate difference is accompanied by a paired trajectory interval that includes zero.
 - [x] The draft does not claim full-field reconstruction or a matched numerical comparison with
   GyroSwin.
-- [x] PDF builds as an unencrypted A4 document with extractable text.
+- [ ] Rebuild the PDF from the current source and record the manuscript-audit result.
+- [ ] Run the current repository verification gates and record their exact output; do not reuse an
+  earlier test count or coverage percentage.
+- [ ] Check every cited W&B URL while signed out, or prepare the sanitized release fallback.
+- [ ] Complete matched seeds 52--56 under the frozen protocol before replacing the retrospective
+  result with a replicated claim.
 
 ## Required human confirmations
 

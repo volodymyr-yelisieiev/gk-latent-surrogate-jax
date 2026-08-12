@@ -26,6 +26,24 @@ artifact contract and must remain stable when comparing runs.
 flux RMSE on the requested split. For model validation, use the validation split and treat
 `flux_rmse` as the primary number; latent MSE is a secondary training diagnostic.
 
+For trajectory-balanced rollout evaluation, the headline flux RMSE is
+
+```text
+sqrt(mean over trajectories and horizons of per-trajectory flux MSE)
+```
+
+It is not the arithmetic mean of `flux_rmse_by_trajectory`. Paired analyses operate on the
+per-trajectory RMSE values and therefore answer a different estimand. Report both when using
+paired uncertainty. The current Cyclone artifacts do not establish a physical flux unit, so
+their flux errors must be labelled `preprocessed target units` unless the data owner supplies
+and verifies a physical unit.
+
+Between-trajectory standard deviation bands are dispersion, not confidence intervals. The
+five-trajectory paired t interval in the retained medium report is descriptive and contains no
+training-seed uncertainty. Spectral aggregate metrics average `kyspec` and `fluxspec`, which have
+different numerical scales; report per-target relative L2 and shape correlation before making any
+spectral-fidelity interpretation.
+
 `gks plot-representation` writes PCA and t-SNE plots from the latent cache, colored by
 flux. It records train/validation/test split labels alongside the projection points so the
 plots are tied to held-out-aware experiment artifacts.

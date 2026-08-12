@@ -39,8 +39,10 @@ choice must be separated from final assessment as well. Validation trajectories 
 such as architecture and normalization, whereas test trajectories estimate performance only after
 those choices are fixed. If representation learning has already observed a downstream test
 trajectory, the complete surrogate is not held out even when the temporal model itself has not
-trained on that trajectory. These principles motivate the trajectory-level lineage checks and the
-validation-then-locked-test protocol used in this thesis.
+trained on that trajectory. Model selection and performance estimation must also remain separated:
+optimizing a noisy validation criterion can otherwise produce selection bias
+\citep{varma2006crossvalidation,cawley2010selectionbias}. These principles motivate the trajectory-level lineage checks and the
+validation-then-test protocol used in this thesis.
 
 \section{Self-Supervised Representation Learning}
 

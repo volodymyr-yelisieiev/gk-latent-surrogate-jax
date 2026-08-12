@@ -63,12 +63,22 @@ Every reported metric must identify:
 - resolved configuration;
 - local artifact or external run record.
 
+Scientific runs intended for comparison must also cite a frozen versioned protocol under
+`experiment_protocols/`. Link the protocol to source, data/split manifests, resolved configs,
+training seeds, upstream artifact hashes, original training telemetry, raw per-trajectory metrics,
+and table/figure source data as specified in `docs/experiment_provenance.md`. A post-hoc summary run
+does not replace original training telemetry.
+
 Keep results from different datasets, caches, splits, horizons, normalization modes, or
 aggregation rules in separate tables. A comparison may use different model checkpoints
 only when the evaluation protocol is otherwise identical and that distinction is explicit.
 
 Generated results remain outside git. Do not commit raw data, checkpoints, latent caches,
 generated HDF5/NPZ files, run directories, W&B state, plots, or build artifacts.
+
+Before citing an external dashboard, verify anonymous read access. If that conflicts with data
+policy, publish a sanitized release bundle with the same non-sensitive provenance fields. Retain
+invalidated runs with their reason and exclude them from accepted comparisons.
 
 ## Pull-request content
 

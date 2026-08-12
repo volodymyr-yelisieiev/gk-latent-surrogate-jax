@@ -36,11 +36,13 @@ consistently restricted to training trajectories. Those values are not accepted 
 evidence.
 
 The corrected comparison uses split seed 52 throughout, fits cache normalization on the
-training split, selects the learned candidate on validation, and opens the test split once
-for that candidate and persistence. The selected cache-normalized Transformer improves
-the primary locked-test flux RMSE (`11.425478` versus `11.988926`, a `4.70%` reduction).
-The paired five-trajectory interval still includes zero, so this is evidence for this
-fixed protocol rather than a significance or general-equivalence claim. Detailed evidence is recorded in
+training split, and selects the learned candidate on validation. Its five-trajectory test
+evaluation is a retrospective single realization, not pristine locked-test evidence: the
+same manifest was inspected in more than one retained evaluation record. The selected
+cache-normalized Transformer has a lower trajectory-balanced flux RMSE point estimate
+(`11.425478` versus `11.988926`, a `4.70%` reduction). The paired five-trajectory interval
+includes zero, so the result does not establish statistical significance, repeatability, or
+general superiority. Detailed evidence is recorded in
 `docs/medium_guppy_experiment_report.md` and `docs/final_claims.md`.
 
 ## Installation and verification
@@ -62,11 +64,13 @@ data nor GPU hardware. Its artifacts are written under ignored `outputs/smoke_*`
 ```bash
 gks inspect-data --config configs/data/tiny_dummy.yaml
 gks train-encoder --config configs/experiment/smoke_encoder_supervised.yaml
+gks train-direct-diagnostics --config configs/experiment/smoke_encoder_supervised.yaml
 gks embed-dataset --config configs/experiment/smoke_embed_dataset.yaml
 gks evaluate-flux-head --config configs/experiment/smoke_evaluate_flux_head.yaml
 gks plot-representation --config configs/experiment/smoke_plot_representation.yaml
 gks train-sequence --config configs/experiment/smoke_sequence.yaml
 gks evaluate-rollout --config configs/experiment/smoke_evaluate_rollout.yaml
+gks-protocol --protocol experiment_protocols/multiseed_v1.json
 ```
 
 All commands support resolved configuration validation through `--dry-run`, targeted

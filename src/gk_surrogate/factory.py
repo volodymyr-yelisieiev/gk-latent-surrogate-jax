@@ -14,7 +14,7 @@ from gk_surrogate.config.schema import (
     SequenceModelConfig,
     SimSiamConfig,
 )
-from gk_surrogate.models.diagnostics import DiagnosticHeads
+from gk_surrogate.models.diagnostics import DiagnosticHeads, DirectSnapshotDiagnosticBaseline
 from gk_surrogate.models.encoders import (
     ConvNDEncoder,
     ExternalEncoderAdapter,
@@ -104,6 +104,17 @@ def build_diagnostic_heads(config: DiagnosticHeadConfig) -> DiagnosticHeads | No
     return DiagnosticHeads(
         flux_dim=flux_dim,
         spectra_dims=spectra_dims,
+        hidden_dims=tuple(int(v) for v in config.hidden_dims),
+        dropout_rate=config.dropout_rate,
+    )
+
+
+def build_direct_diagnostic_baseline(config: DiagnosticHeadConfig) -> DirectSnapshotDiagnosticBaseline:
+    """Build the direct same-time snapshot-to-diagnostics control model."""
+
+    return DirectSnapshotDiagnosticBaseline(
+        flux_dim=int(config.flux_dim or 0),
+        spectra_dims={str(k): int(v) for k, v in config.spectra_dims.items()},
         hidden_dims=tuple(int(v) for v in config.hidden_dims),
         dropout_rate=config.dropout_rate,
     )

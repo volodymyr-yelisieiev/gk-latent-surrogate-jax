@@ -8,16 +8,17 @@ approval or submission.
 
 | component | weight | evidence and present status |
 | --- | ---: | --- |
-| Scientific work | 50% | A complete JAX/Flax pipeline, real-data medium experiment, explicit persistence baseline, validation-only model selection, locked test, trajectory-balanced metrics, paired trajectory uncertainty, and limitations are documented. A lineage audit invalidated a mixed-seed result; the full source-to-test seed-52 reproduction is the sole headline evidence and lowers the primary point estimate by 4.70%. |
-| Scientific documentation and code | 10% | Setup, data contract, configurations, CLI dry-runs, fail-closed artifact provenance, synthetic fallback, tests, and reproducibility commands are present. The final gate covers 230 tests at 95.00% line coverage, the full synthetic smoke pipeline, Ruff, MyPy, and package build. |
-| Manuscript | 40% | The compiled A4 PDF has 38 pages and remains within the 5,000--10,000 main-word requirement. It has a 259-word English abstract, more than 1,000 words in introduction plus related work, more than 500 words in discussion plus conclusion, seven figures, three tables, and all nine story answers within three sentences. Final PDF checks require no unresolved references or overfull boxes. |
+| Scientific work | 50% | The pipeline, real-data medium experiment, persistence baseline, validation-only selection, trajectory-balanced metrics, paired trajectory uncertainty, and limitations are documented. The seed-52 result is one retrospective test realization with one training seed and five trajectories; its interval includes zero. Matched seeds and an unseen test set or nested group cross-validation remain outstanding. |
+| Scientific documentation and code | 10% | Setup, data contract, configurations, CLI dry-runs, artifact provenance, synthetic fallback, tests, and reproducibility commands are present. A current clean run of the repository gates, exact coverage, and a source-linked public release remain required; this file does not certify them. |
+| Manuscript | 40% | The LaTeX source contains the required sections, abstracts, story summary, figures, tables, and references. Page count, word count, unresolved references, overfull boxes, links, and visual quality must be re-audited on the PDF built from the current source. |
 | Plagiarism/originality | pass condition | Automated source preparation cannot certify originality. The author must run the institutionally appropriate check and accept responsibility for citations, wording, and any required AI-assistance disclosure. |
 
 ## Scientific claim control
 
 - Primary metric: trajectory-balanced flux RMSE.
 - Validation-selected learned model: cache-normalized causal Transformer, flux RMSE `18.179277`.
-- Locked test: Transformer `11.425478`; persistence `11.988926`.
+- Retrospective test point estimates: Transformer `11.425478`; persistence `11.988926` in
+  preprocessed target units.
 - Primary conclusion: the fixed-protocol point estimate improves by `0.563448` (`4.70%`).
 - Per-trajectory flux RMSE improves in three of five cases; the paired mean difference is `-0.8279`
   with descriptive 95% t interval `[-2.2249, 0.5692]`, so no significance claim is made.
@@ -28,24 +29,24 @@ approval or submission.
 
 ## Canonical task-history adherence
 
-- `THESIS-01` through `THESIS-21`: recorded as Done in the canonical Notion task database; their
-  implementation, experiment, documentation, and result-framing deliverables were rechecked against
-  the repository.
+- `THESIS-01` through `THESIS-21`: task status in an external database is not evidence of technical
+  or scientific correctness. Each claimed deliverable must be checked against the repository and
+  accepted artifacts.
 - `THESIS-22`: remains Waiting because matched external GyroSwin artifacts are unavailable. The
   manuscript therefore treats GyroSwin as related work and makes no direct numerical comparison.
-- `THESIS-23`: the source, compiled PDF, figures, tables, references, reproducibility appendix, and
-  review checklist are prepared. External approval and author review remain outside the technical
-  package.
-- `THESIS-24`: the correctly named review candidate, source archive, checksums, repository link,
-  clean W&B records, and evidence summary are prepared. Delivery remains an external action.
+- `THESIS-23`: source, figures, tables, references, reproducibility appendix, and review checklist
+  exist. The current-source PDF build and page-level review remain to be recorded.
+- `THESIS-24`: package naming and provenance requirements are documented. Public source commits,
+  anonymous W&B access or sanitized fallback, release checksums, and evidence links require external
+  verification.
 - `THESIS-25`: the filename convention and human-only submission checklist are prepared. Formal
   upload, grade request, and any institutional declarations remain external actions.
 
 ## Review package
 
-- PDF: `2026S-12340334-Yelisieiev_Volodymyr-Thesis_BSc-v1-Latent_Surrogates.pdf`.
-- PDF SHA-256: recorded in the final package checksum manifest.
-- Source archive: `thesis-source-review.tar.gz`; its checksum is recorded beside the package.
+- Intended PDF name: `2026S-12340334-Yelisieiev_Volodymyr-Thesis_BSc-v1-Latent_Surrogates.pdf`.
+- PDF and source-archive SHA-256 values must be generated from the final reviewed files; this review
+  does not assert that a current release package exists.
 - Identity recorded in the PDF: matriculation number `12340334`, supervisor Gianluca Galletti,
   programme Artificial Intelligence.
 

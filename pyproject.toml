@@ -39,6 +39,7 @@ optional = [
 
 [project.scripts]
 gks = "gk_surrogate.cli:main"
+gks-protocol = "gk_surrogate.protocol_runner:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/gk_surrogate"]

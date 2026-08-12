@@ -1,14 +1,19 @@
 # Experiment Lifecycle
 
-1. Validate a config with `--dry-run`; dry-runs print the full resolved config and a
+1. Freeze a versioned protocol under `experiment_protocols/` as described in
+   `docs/experiment_provenance.md`. Record source and data-universe hashes before training.
+2. Validate a config with `--dry-run`; dry-runs print the full resolved config and a
    command summary without training/evaluation writes.
-2. Inspect data shapes and target availability with `gks inspect-data`.
-3. Run smoke training on synthetic data with `gks train-encoder`.
-4. Embed trajectories into an HDF5 latent cache.
-5. Evaluate validation flux RMSE with `gks evaluate-flux-head`.
-6. Generate PCA/t-SNE representation plots with `gks plot-representation`.
-7. Train latent sequence models from cache windows.
-8. Evaluate rollout metrics and diagnostic quality.
+3. Inspect data shapes and target availability with `gks inspect-data`.
+4. Run smoke training on synthetic data with `gks train-encoder`.
+5. Train the same-time direct diagnostic control with `gks train-direct-diagnostics`; use it to
+   distinguish target learnability from latent representation and temporal-forecast quality.
+6. Embed trajectories into an HDF5 latent cache.
+7. Evaluate validation flux RMSE with `gks evaluate-flux-head`.
+8. Generate PCA/t-SNE representation plots with `gks plot-representation`.
+9. Train latent sequence models from cache windows and preserve original telemetry.
+10. Select checkpoints and models on validation only, then evaluate the frozen final protocol.
+11. Link accepted raw metrics and figure-source tables through an accepted-run manifest.
 
 Before real-data training, follow `docs/real_data_binding_checklist.md`. The first
 Cyclone/KvikIO pass should be inspection-only:
@@ -39,3 +44,8 @@ scale.
 Outputs, checkpoints, runs, raw data, and generated HDF5 files are gitignored.
 Full resolved configs are written as `config_resolved.yaml` by normal commands that have
 an output directory; dry-runs intentionally do not create that artifact.
+
+The next accepted comparison uses matched learned-model training seeds `52`--`56`. Use at least
+ten previously uninspected trajectories for a final test. If that is impossible, run the frozen
+five-fold nested group cross-validation fallback and describe the result as retrospective. Do not
+reuse the known seed-52 test manifest as new confirmation evidence.

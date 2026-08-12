@@ -7,6 +7,8 @@ from collections.abc import Iterator, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
+import h5py
+
 from gk_surrogate.config.schema import ExperimentConfig
 
 _UNRESOLVED_ENV_RE = re.compile(r"\$(?:\{[^}]+\}|\([^)]+\)|[A-Za-z_][A-Za-z0-9_]*)")
@@ -57,9 +59,8 @@ def validate_config(config: ExperimentConfig, *, command: str | None = None) -> 
     ):
         msg = "evaluate-rollout requires latent_cache.sequence_checkpoint_path or persistence baseline"
         raise ValueError(msg)
-    if command == "train-encoder" and config.loss.simsiam_weight > 0 and config.model.simsiam is None:
-        msg = "SimSiam encoder training requires model.simsiam"
-        raise ValueError(msg)
+    _validate_model_data_contract(config, command=command)
+    _validate_existing_latent_cache(config, command=command)
 
     if data.backend in {"h5", "cyclone_kvikio"} and data.root is not None:
         output_dir = Path(config.output_dir).expanduser().resolve()
@@ -79,6 +80,70 @@ def validate_config(config: ExperimentConfig, *, command: str | None = None) -> 
     if config.loss.spectra_weight > 0 and missing_heads:
         missing = ", ".join(sorted(missing_heads))
         msg = f"diagnostic spectra heads missing for requested targets: {missing}"
+        raise ValueError(msg)
+
+
+def _validate_model_data_contract(config: ExperimentConfig, *, command: str | None) -> None:
+    data = config.data
+    sequence = config.model.sequence
+    sequence_commands = {"train-sequence", "evaluate-rollout"}
+    if command in sequence_commands and sequence is not None:
+        if sequence.context_length != data.context_length:
+            msg = (
+                "model.sequence.context_length must equal data.context_length "
+                f"({sequence.context_length} != {data.context_length})"
+            )
+            raise ValueError(msg)
+        if sequence.latent_dim != config.model.encoder.latent_dim:
+            msg = (
+                "model.sequence.latent_dim must equal model.encoder.latent_dim "
+                f"({sequence.latent_dim} != {config.model.encoder.latent_dim})"
+            )
+            raise ValueError(msg)
+    synthetic = data.synthetic
+    if data.backend != "synthetic" or synthetic is None:
+        return
+    if synthetic.timesteps < data.context_length + data.prediction_length:
+        msg = "synthetic timesteps must cover data.context_length + data.prediction_length"
+        raise ValueError(msg)
+    diagnostics = config.model.diagnostics
+    if data.target_flux and diagnostics.flux_dim is not None and diagnostics.flux_dim != synthetic.flux_dim:
+        msg = (
+            "model.diagnostics.flux_dim must match data.synthetic.flux_dim "
+            f"({diagnostics.flux_dim} != {synthetic.flux_dim})"
+        )
+        raise ValueError(msg)
+    for name in data.target_spectra:
+        source_dim = synthetic.spectra_dims.get(name)
+        head_dim = diagnostics.spectra_dims.get(name)
+        if source_dim is None:
+            raise ValueError(f"data.synthetic.spectra_dims is missing requested target {name!r}")
+        if head_dim is not None and head_dim != source_dim:
+            msg = (
+                f"model.diagnostics.spectra_dims[{name!r}] must match "
+                f"data.synthetic.spectra_dims[{name!r}] ({head_dim} != {source_dim})"
+            )
+            raise ValueError(msg)
+
+
+def _validate_existing_latent_cache(config: ExperimentConfig, *, command: str | None) -> None:
+    if command not in {"train-sequence", "evaluate-rollout", "evaluate-flux-head", "plot-representation"}:
+        return
+    cache_path = config.latent_cache.path
+    if not cache_path or not Path(cache_path).is_file():
+        return
+    try:
+        with h5py.File(cache_path, "r") as handle:
+            cache_latent_dim = int(handle["metadata"].attrs["latent_dim"])
+    except (KeyError, OSError, TypeError, ValueError) as exc:
+        raise ValueError(f"latent cache metadata is invalid: {cache_path}") from exc
+    expected = (
+        config.model.sequence.latent_dim
+        if config.model.sequence is not None
+        else config.model.encoder.latent_dim
+    )
+    if cache_latent_dim != expected:
+        msg = f"latent cache dimension must match configured latent dimension ({cache_latent_dim} != {expected})"
         raise ValueError(msg)
 
 

@@ -12,17 +12,18 @@ latents from an eight-step context.
 
 A data-integrity audit found that an earlier comparison used inconsistent trajectory-split seeds
 between representation learning and downstream evaluation; those numbers were withdrawn. The
-corrected protocol fixes seed 52 throughout, selects the learned model on five validation
-trajectories, and evaluates it once on five untouched test trajectories. The cache-normalized
-Transformer was the best learned validation candidate. On the locked eight-step test, its flux root
+corrected reproduction fixes trajectory-split seed 52 throughout and selects the learned model on five validation
+trajectories. Its five-trajectory test is reported as a retrospective single realization because
+the manifest was inspected during more than one retained evaluation. The cache-normalized
+Transformer was the best learned validation candidate. In the eight-step test, its flux root
 mean squared error is 11.4255, compared with 11.9889 for persistence, a 4.70\% reduction in the
-primary point estimate. It also reduces latent mean squared error and flux mean absolute error.
+primary point estimate in preprocessed target units. It also reduces latent mean squared error and
+flux mean absolute error.
 Per-trajectory flux RMSE improves in three of five cases, while a descriptive paired 95\% interval
 includes zero; the small sample therefore does not support a significance claim. The work
-weights rollout aggregates equally by trajectory, and every accepted artifact is bound to an
-auditable split manifest. It
-therefore contributes a reproducible, leakage-resistant latent-surrogate pipeline and bounded
-evidence of short-horizon improvement; it does not establish full-field reconstruction, long-horizon accuracy, or a
+weights rollout aggregates equally by trajectory, and every reported artifact is bound to an
+auditable split manifest. It contributes an auditable latent-surrogate pipeline and one limited
+short-horizon comparison; it does not establish repeatable model superiority, full-field reconstruction, long-horizon accuracy, or a
 direct numerical advantage over GyroSwin.
 \end{abstract*}
 \end{otherlanguage}
@@ -41,16 +42,18 @@ trainiert. Persistenz-, GRU- und kausale Transformer-Modelle sagen anschließend
 Kontextschritten zukünftige latente Zustände voraus.
 
 Eine Datenintegritätsprüfung zeigte, dass ein früherer Vergleich unterschiedliche Seeds für die
-Trajektorienaufteilung verwendete; diese Zahlen wurden zurückgezogen. Das korrigierte Protokoll
-verwendet durchgehend Seed 52, wählt das gelernte Modell auf fünf Validierungstrajektorien und
-wertet es einmalig auf fünf unberührten Testtrajektorien aus. Der cache-normalisierte Transformer
-war der beste gelernte Validierungskandidat und erreicht im gesperrten Acht-Schritt-Test einen
+Trajektorienaufteilung verwendete; diese Zahlen wurden zurückgezogen. Die korrigierte Reproduktion
+verwendet durchgehend Seed 52 für die Trajektorienaufteilung und wählt das gelernte Modell auf fünf
+Validierungstrajektorien.
+Der Test mit fünf Trajektorien wird als retrospektive Einzelrealisierung berichtet, da das Manifest
+in mehr als einer gespeicherten Auswertung untersucht wurde. Der cache-normalisierte Transformer
+war der beste gelernte Validierungskandidat und erreicht im Acht-Schritt-Test einen
 Fluss-RMSE von 11,4255 gegenüber 11,9889 für Persistenz. Dies entspricht einer Verringerung des
-primären Punktschätzers um 4,70\,\%. Der Fluss-RMSE verbessert sich in drei von fünf einzelnen
+primären Punktschätzers in vorverarbeiteten Zieleinheiten um 4,70\,\%. Der Fluss-RMSE verbessert sich in drei von fünf einzelnen
 Testtrajektorien; ein deskriptives gepaartes 95\,\%-Intervall schließt jedoch null ein, weshalb keine
 Signifikanz behauptet wird. Der Beitrag umfasst eine nach Trajektorien gleich gewichtete Auswertung,
-eine überprüfbare Zuordnung jedes akzeptierten Artefakts zur Datenaufteilung sowie eine
-reproduzierbare, gegen Datenleckage abgesicherte Pipeline mit klar begrenzter empirischer Evidenz;
+eine überprüfbare Zuordnung jedes berichteten Artefakts zur Datenaufteilung sowie eine
+nachvollziehbare Pipeline mit klar begrenzter empirischer Evidenz;
 vollständige Feldrekonstruktion, Langzeitgenauigkeit und ein direkter numerischer Vorteil
 gegenüber GyroSwin werden nicht behauptet.
 \end{abstract*}

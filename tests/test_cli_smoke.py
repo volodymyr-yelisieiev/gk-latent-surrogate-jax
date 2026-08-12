@@ -26,6 +26,24 @@ def test_cli_smoke_full_pipeline_uses_temp_dirs(repo_root, tmp_path):
     )
     assert (tmp_path / "enc" / "metrics.json").exists()
 
+    assert (
+        main(
+            [
+                "train-direct-diagnostics",
+                "--config",
+                str(supervised),
+                "--override",
+                "training.max_steps=1",
+                "--override",
+                "training.eval_every=1",
+                "--output-dir",
+                str(tmp_path / "direct_diagnostics"),
+            ]
+        )
+        == 0
+    )
+    assert (tmp_path / "direct_diagnostics" / "metrics.json").exists()
+
     enc_ckpt = tmp_path / "enc" / "checkpoints" / "step_000002"
     embed = repo_root / "configs/experiment/smoke_embed_dataset.yaml"
     assert (
@@ -55,6 +73,8 @@ def test_cli_smoke_full_pipeline_uses_temp_dirs(repo_root, tmp_path):
                 str(tmp_path / "flux_head"),
                 "--override",
                 f"latent_cache.path={tmp_path / 'embed' / 'latent_cache.h5'}",
+                "--override",
+                f"latent_cache.encoder_checkpoint_path={enc_ckpt}",
             ]
         )
         == 0
@@ -72,6 +92,8 @@ def test_cli_smoke_full_pipeline_uses_temp_dirs(repo_root, tmp_path):
                 str(tmp_path / "representation"),
                 "--override",
                 f"latent_cache.path={tmp_path / 'embed' / 'latent_cache.h5'}",
+                "--override",
+                f"latent_cache.encoder_checkpoint_path={enc_ckpt}",
                 "--override",
                 "evaluation.tsne_perplexities=[3,5]",
             ]
@@ -91,6 +113,8 @@ def test_cli_smoke_full_pipeline_uses_temp_dirs(repo_root, tmp_path):
                 "training.max_steps=2",
                 "--override",
                 f"latent_cache.path={tmp_path / 'embed' / 'latent_cache.h5'}",
+                "--override",
+                f"latent_cache.encoder_checkpoint_path={enc_ckpt}",
                 "--output-dir",
                 str(tmp_path / "seq"),
             ]
@@ -109,6 +133,8 @@ def test_cli_smoke_full_pipeline_uses_temp_dirs(repo_root, tmp_path):
                 str(tmp_path / "eval"),
                 "--override",
                 f"latent_cache.path={tmp_path / 'embed' / 'latent_cache.h5'}",
+                "--override",
+                f"latent_cache.encoder_checkpoint_path={enc_ckpt}",
                 "--override",
                 f"latent_cache.sequence_checkpoint_path={tmp_path / 'seq' / 'checkpoints' / 'step_000002'}",
             ]
