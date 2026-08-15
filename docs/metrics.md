@@ -43,10 +43,11 @@ not establish a physical flux unit, so
 their flux errors must be labelled `preprocessed target units` unless the data owner supplies
 and verifies a physical unit.
 
-Between-trajectory standard deviation bands are dispersion, not confidence intervals. The
-five-trajectory paired t interval in the retained medium report is descriptive and contains no
-training-seed uncertainty. Spectral aggregate metrics average `kyspec` and `fluxspec`, which have
-different numerical scales; report per-target relative L2 and shape correlation before making any
+Between-trajectory standard deviation bands are dispersion, not confidence intervals. The accepted
+report uses a paired hierarchical bootstrap over five outer folds, five matched training seeds, and
+trajectories; horizon ribbons remain between-fold dispersion rather than confidence intervals.
+Spectral aggregate metrics keep `kyspec` and `fluxspec` separate because they have different
+numerical scales; report per-target relative L2 and shape correlation before making any
 spectral-fidelity interpretation.
 
 `gks plot-representation` writes PCA and t-SNE plots from the latent cache, colored by

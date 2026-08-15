@@ -1,29 +1,42 @@
 # Result status
 
-The retained seed-52 run is a retrospective audit record, not a prospective locked-test
-result. The old comparison used a decoded latent-state persistence reference and reported a
-small Transformer advantage. That reference is useful for latent dynamics, but it is not the
-appropriate baseline for forecasting an observed diagnostic.
+## Accepted thesis evidence
 
-The baseline audit on the retained five-trajectory cache gives:
+The accepted result is `experiment_protocols/multiseed_v1_results.json`, generated from the
+ignored aggregate at the frozen source tag `protocol/multiseed-v1` (commit
+`be976808582239da201896bd20ef95ff91d97128`). It is a retrospective five-fold nested group
+cross-validation estimate on a manifest-/byte-verified 51-trajectory universe, not a pristine
+locked test. The release records 255 planned stage slots: 230 accepted ledger slots (225 metric
+stages and five selection barriers) and 25 skipped because the
+corresponding learned family was not selected in validation.
 
-| method | flux RMSE | interpretation |
-| --- | ---: | --- |
-| observed-flux persistence | 3.7208 | primary diagnostic baseline; copies the last observed flux |
-| selected Transformer | 11.4255 | learned latent rollout followed by the frozen diagnostic head |
-| latent persistence, decoded | 11.9889 | latent-state baseline followed by the same head |
-| diagnostic-head oracle | 12.0712 | frozen head applied to true future latents; not a forecast |
+| quantity | value |
+| --- | ---: |
+| selected learned flux RMSE | 14.6729 |
+| observed-flux persistence flux RMSE | 10.0207 |
+| learned minus observed difference | +4.6522 |
+| 95% paired hierarchical bootstrap interval | [+2.5788, +6.6470] |
+| decoded latent-persistence flux RMSE | 14.8049 |
+| diagnostic-head oracle flux RMSE | 12.3732 |
+| learned minus latent-persistence latent MSE | +0.0189 |
+| secondary 95% interval | [-0.0699, +0.1332] |
 
-The oracle's error is close to both latent-rollout rows. This means the present comparison is
-dominated by diagnostic decoding error and does not support a claim that the learned sequence model
-beats observed-flux persistence. The Transformer is also not presented as a general winner: the
-record contains one training seed, five trajectories, and a retrospectively inspected manifest.
+The primary interval lies entirely above zero, meaning that the learned model has larger error
+than direct observed persistence under the declared estimand. The correct thesis claim is therefore
+that this implementation does not demonstrate an advantage over the strong baseline. The selected
+family changes by fold (Transformer in 0, 1, and 3; GRU in 2 and 4), so no global architecture
+winner is claimed. The diagnostic-head oracle is an analysis control, not a forecast, and does not
+isolate a single representation or decoder bottleneck.
 
-The five-fold, five-seed protocol in `experiment_protocols/multiseed_v1.json` is planned and
-requires a byte-verified dataset universe before execution. It is the only route for a new
-thesis-facing comparison. Engineering smoke outputs under `outputs/` remain useful for checking
-the pipeline but are not empirical evidence.
+## Integrity and visibility
 
-The three historical W&B records and their tags were deleted during the audit. No live W&B URL or
-public evidence-release URL is claimed. A future accepted run must create fresh, protocol-linked
-records and retain a sanitized offline evidence manifest if public access is not allowed.
+All accepted metric stages are finite and stable, have matching fold/seed manifests and artifact
+lineage, and state that test evidence was not opened for selection. The aggregate also checks paired
+trajectory identities, stage hashes, checkpoint/cache hashes, and the fixed bootstrap seed. W&B is
+disabled by protocol for all 225 accepted metric stages (`enabled=false`, `requested=false`,
+`mode=disabled`, with configuration verification); there are no live W&B URLs to cite. Raw data, checkpoints, caches,
+and trajectory-level rows remain on the authorized server and are not committed.
+
+Engineering smoke outputs remain useful for regression testing but are not thesis evidence. Any
+future scientific change requires a new protocol ID and source/data binding; the frozen protocol
+must not be edited in place.

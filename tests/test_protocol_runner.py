@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import subprocess
+import sys
 from copy import deepcopy
 from pathlib import Path
 from types import SimpleNamespace
@@ -139,11 +140,19 @@ def _write_success_evidence(command: list[str], output: Path) -> None:
     (output / "metrics.json").write_text(json.dumps(payload), encoding="utf-8")
 
 
-def test_repository_protocol_defaults_to_blocked_preflight(repo_root: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_planned_protocol_defaults_to_blocked_preflight(
+    repo_root: Path,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    protocol_path = tmp_path / "planned-protocol.json"
+    protocol = json.loads((repo_root / "experiment_protocols" / "multiseed_v1.json").read_text(encoding="utf-8"))
+    protocol["status"] = "planned"
+    protocol_path.write_text(json.dumps(protocol), encoding="utf-8")
     result = protocol_runner.main(
         [
             "--protocol",
-            str(repo_root / "experiment_protocols" / "multiseed_v1.json"),
+            str(protocol_path),
             "--repo-root",
             str(repo_root),
         ]
@@ -155,6 +164,27 @@ def test_repository_protocol_defaults_to_blocked_preflight(repo_root: Path, caps
     assert any("status must be 'frozen'" in blocker for blocker in payload["blockers"])
     assert "--universe-manifest is required to verify the dataset universe" in payload["blockers"]
     assert all(stage.get("status") != "completed" for stage in payload["stages"])
+
+
+def test_default_stage_runner_captures_child_output(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    stage = protocol_runner.Stage(
+        "probe",
+        52,
+        (sys.executable, "-c", "print('child-output')"),
+        tmp_path / "probe",
+    )
+    monkeypatch.setattr(protocol_runner, "_load_stage_evidence", lambda _stage: {"metrics_sha256": "a" * 64})
+
+    result = protocol_runner.execute_stages([stage], repo_root=tmp_path, resume=False)
+
+    assert result[0]["status"] == "completed"
+    assert capsys.readouterr().out == ""
+    assert (stage.output_dir / "command.stdout.log").read_text(encoding="utf-8") == "child-output\n"
+    assert (stage.output_dir / "command.stderr.log").read_text(encoding="utf-8") == ""
 
 
 def test_preflight_builds_matched_seed_plan_when_evidence_is_complete(

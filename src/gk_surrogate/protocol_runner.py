@@ -1325,7 +1325,21 @@ def execute_stages(
             )
             continue
         command = _resolve_command(stage.command, evidence)
-        completed = command_runner(command, cwd=repo_root, check=False, text=True)
+        if command_runner is subprocess.run:
+            completed = command_runner(
+                command,
+                cwd=repo_root,
+                check=False,
+                text=True,
+                capture_output=True,
+            )
+            stage.output_dir.mkdir(parents=True, exist_ok=True)
+            (stage.output_dir / "command.stdout.log").write_text(completed.stdout or "", encoding="utf-8")
+            (stage.output_dir / "command.stderr.log").write_text(completed.stderr or "", encoding="utf-8")
+        else:
+            # Keep the injectable runner contract small for tests and callers
+            # that provide their own command executor.
+            completed = command_runner(command, cwd=repo_root, check=False, text=True)
         if completed.returncode != 0:
             raise RuntimeError(f"stage {stage.name} seed {stage.seed} failed with exit code {completed.returncode}")
         produced = _load_stage_evidence(stage)

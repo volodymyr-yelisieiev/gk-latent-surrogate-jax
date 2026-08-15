@@ -4,27 +4,61 @@
 
 \section{Motivation}
 
-Magnetically confined fusion plasmas exhibit turbulence that transports heat and particles
-across magnetic surfaces. Predicting this transport is important for understanding confinement,
-but the nonlinear gyrokinetic equations evolve a five-dimensional distribution function and are
-expensive to solve at high fidelity. The dimensionality is not incidental: it preserves kinetic
-effects that reduced transport models may omit \citep{abel2013multiscale,paischer2025gyroswin}.
+Magnetically confined fusion plasmas exhibit turbulence that transports heat and particles across
+magnetic surfaces. Predicting this transport is important for understanding confinement, designing
+experiments, and deciding which reduced models are safe to use. Nonlinear gyrokinetic equations
+retain kinetic effects that fluid approximations can omit, but they evolve a distribution function
+over several spatial and velocity coordinates. The resulting five-dimensional state is expensive to
+advance at high fidelity, and a long simulation produces a large sequence of strongly correlated
+snapshots \citep{abel2013multiscale,paischer2025gyroswin}.
 
-Machine-learning surrogates offer a complementary approximation path. A full-field surrogate can
-directly predict the next high-dimensional state, but doing so requires a model and loss over every
-field value. This thesis studies a narrower question: can the state first be compressed into a
-small vector whose dynamics are easier to learn, while diagnostic heads preserve information about
-quantities of physical interest? The proposed pipeline therefore separates spatial representation
-learning from temporal prediction. It maps each five-dimensional snapshot $x_t$ to a latent vector
-$z_t$, evolves $z_t$ autoregressively, and evaluates the rollout both in latent space and through
-diagnostic predictions of flux and spectra.
+The computational cost creates an attractive role for learned surrogates. A surrogate could provide
+fast approximate diagnostics between expensive solver calls, help explore parameter settings, or
+serve as a proposal model for a larger simulation workflow. These applications require more than a
+low training loss. The model must preserve the information needed by a physical diagnostic, respect
+the temporal ordering of trajectories, and be compared with a baseline that is meaningful for the
+quantity of interest. If those conditions are not met, a visually smooth rollout can be less useful
+than copying the last observed diagnostic.
 
-This separation has three practical attractions. First, sequence models operate on vectors rather
-than the full spatial grid. Second, diagnostic errors can be evaluated without claiming that a
-latent vector reconstructs the complete distribution function. Third, simple temporal baselines
-can be compared under an identical cached representation. The trade-off is equally important: the
-surrogate is useful only for the diagnostic quantities explicitly retained by the representation,
-and it cannot be interpreted as a full simulation replacement.
+This thesis studies a deliberately narrow version of that problem. Rather than reconstructing the
+complete distribution function, it asks whether a snapshot can be compressed into a small latent
+state whose temporal dynamics are easier to learn while still supporting scalar-flux and spectral
+diagnostics. Let $x_t$ denote a preprocessed channel-first snapshot, $z_t=f_\theta(x_t)$ its
+latent representation, and $g_\phi$ the diagnostic heads. A temporal model $h_\psi$ predicts future
+states from a context window. The complete prediction route is therefore
+\begin{equation}
+  x_{t-L+1:t}\;\xrightarrow{f_\theta}\;z_{t-L+1:t}
+  \xrightarrow{h_\psi}\widehat{z}_{t+1:t+H}
+  \xrightarrow{g_\phi}\widehat{y}_{t+1:t+H},
+\end{equation}
+where $y$ contains flux and spectra. The route separates representation learning, temporal
+prediction, and diagnostic decoding so that each source of error can be inspected.
+
+This separation has practical advantages. Sequence models operate on vectors rather than a full
+spatial grid, so their memory use is easier to control. Diagnostic heads make it possible to test
+whether a latent state retains task-relevant information without pretending that it is a complete
+physical field. A cached representation also allows persistence, GRU, and Transformer baselines to
+share exactly the same encoder and target normalization. The trade-off is equally important: a
+latent state is useful only for the information it retains. A small latent MSE does not imply an
+accurate transport forecast, and an accurate scalar diagnostic does not imply full-field fidelity.
+
+\section{Why Evaluation Design Matters}
+
+Trajectory data make leakage easy to introduce. Adjacent snapshots from one trajectory are highly
+correlated, and a random snapshot split can place near-duplicates in training and evaluation. More
+subtly, an encoder trained with one trajectory split can be combined with a sequence evaluator
+using another split. The downstream evaluator may call a trajectory ``test'' even though its
+snapshots already influenced the encoder or latent normalization. The resulting number can be
+finite and reproducible while failing to measure end-to-end generalization.
+
+The thesis therefore treats provenance as part of the experiment, not as an appendix. A manifest
+binds the ordered trajectory universe and each outer fold. Resolved configurations record data and
+training seeds, normalization scope, context, horizon, and upstream artifact hashes. Validation
+selects checkpoints and model families; outer-test evidence is opened only after the selection
+barrier. A direct observed-flux persistence baseline is declared before comparison because the
+scientific question is diagnostic prediction, not merely latent reconstruction. This design makes
+a negative result interpretable: if a learned model loses to persistence, the loss is not hidden by
+a weaker reference or by test-aware tuning.
 
 \section{Research Question}
 
@@ -36,61 +70,71 @@ preprocessed five-dimensional field snapshots, and do latent sequence models imp
 flux-predictive rollouts over direct persistence of the observed flux on held-out trajectories?
 \end{quote}
 
-The question is operationalized through three sub-questions:
+The phrase ``held-out'' is used at the outer-fold level. Because the 51-trajectory universe was
+available during development, the final estimate is retrospective nested group cross-validation,
+not a pristine locked test. Three sub-questions make the central question measurable:
 
 \begin{enumerate}[label=RQ\arabic*]
-  \item Does the encoder retain flux-relevant information in a 128-dimensional latent space?
-  \item Which of latent-state persistence, a gated recurrent unit (GRU), and a causal Transformer
-        produces the best eight-step latent rollout under a common test protocol, and does its flux
-        forecast beat direct persistence of the observed flux?
-  \item Does cache normalization materially change the ranking of the learned sequence models?
+  \item Does the encoder retain enough diagnostic signal in a 128-dimensional state for finite
+        flux and spectral prediction?
+  \item After validation-only checkpoint and family selection, does the selected learned sequence
+        model beat direct persistence of the observed flux over an eight-step horizon?
+  \item Is any apparent learned-model advantage stable across matched training seeds and outer
+        folds, or does the selected family change with the split?
 \end{enumerate}
 
-Flux RMSE is the primary model-selection metric. Latent mean squared error (MSE), spectra errors,
-and finite-output stability are secondary diagnostics. This priority follows the scientific goal:
-a numerically small latent error is not sufficient if it fails to preserve transport information.
+Flux RMSE is the primary metric because transport prediction is the stated goal. Latent MSE,
+flux MAE, spectra errors, shape correlation, and finite-output stability are secondary diagnostics.
+The hierarchy is intentional: a model that predicts a latent vector well but decodes a poor flux is
+not a successful answer to the central question.
 
 \section{Contributions}
 
 This thesis makes the following contributions:
 
 \begin{itemize}
-  \item a portable JAX/Flax implementation of a complete latent-surrogate workflow, including
-        synthetic fixtures and a real Cyclone/KvikIO data adapter;
+  \item a portable JAX/Flax implementation of a latent-surrogate workflow, including synthetic
+        fixtures and a real Cyclone/KvikIO data adapter;
   \item an explicit channel-first tensor contract for five spatial dimensions and deterministic
-        trajectory-level train, validation, and test splits;
-  \item a representation objective combining SimSiam-style invariance with supervised flux and
+        trajectory-level split manifests;
+  \item a representation objective combining SimSiam-style consistency with supervised flux and
         spectra heads;
-  \item latent caching and comparable latent-state persistence, observed-diagnostic persistence,
-        GRU, MLP-delta, and causal Transformer references;
-  \item trajectory-balanced rollout evaluation with latent, flux, spectra, and stability metrics;
-  \item a lineage-audited medium-scale comparison showing that the selected Transformer does not
-        beat direct observed-flux persistence, and that the frozen diagnostic head limits the
-        reported flux error; and
-  \item a reproducibility-oriented command-line interface, configuration system, test suite, and
-        provenance ledger that separates engineering smoke tests from empirical evidence.
+  \item latent caching and comparable latent-state persistence, GRU, and causal Transformer
+        candidates;
+  \item trajectory-balanced rollout evaluation with paired hierarchical uncertainty and separate
+        spectral diagnostics;
+  \item a frozen five-fold, five-seed evidence record with 230 accepted and 25 skipped stage slots;
+        and
+  \item a reproducibility-oriented CLI, configuration system, test suite, and release manifest
+        that make the negative result auditable without publishing raw data or private paths.
 \end{itemize}
+
+The empirical contribution is deliberately bounded. The accepted result shows that the selected
+latent models do not beat observed-flux persistence under the declared data and horizon. It does
+not establish that latent surrogates are unsuitable for gyrokinetics, nor does it compare numerical
+performance with GyroSwin. The software and protocol provide a controlled basis for that future
+question.
 
 \section{Scope and Claim Boundaries}
 
 The work predicts latent vectors and diagnostics; it does not reconstruct the complete
-five-dimensional state. The medium experiment covers 51 trajectories from one preprocessed data
-source, split at trajectory level into 41 training, five validation, and five test trajectories
-with one canonical seed. Generalization to other regimes, machines, preprocessing choices, or
-substantially longer horizons is not established.
+five-dimensional state. The medium universe contains 51 trajectories from one preprocessing
+pipeline, and the retrospective outer folds provide ten or eleven test trajectories each. The
+eight-step horizon establishes short-term behaviour only. Generalization to other regimes,
+machines, preprocessing choices, or substantially longer horizons is not established.
 
 GyroSwin is discussed as related work because it targets scalable full-field five-dimensional
 surrogacy \citep{paischer2025gyroswin}. A direct numeric comparison is intentionally omitted. Such
-a comparison would require the same dataset version, trajectory split, temporal sampling,
-forecast horizon, target definition, normalization, and metric implementation. Those matching
-materials were unavailable for the present experiment.
+a comparison would require the same dataset revision, trajectory split, temporal sampling,
+forecast horizon, target definition, normalization, checkpoint, and metric implementation. Without
+that matched bundle, a table of numbers would be misleading rather than informative.
 
 \section{Thesis Structure}
 
 \autoref{chap:background} introduces gyrokinetic turbulence, representation learning, and latent
 sequence models. \autoref{chap:method} defines the data contract, objectives, architectures, and
 evaluation protocol. \autoref{chap:implementation} describes the software system and portability
-decisions. \autoref{chap:experiments} specifies the datasets and experiments. Results are reported in
-\autoref{chap:results}, interpreted in \autoref{chap:discussion}, and summarized in
-\autoref{chap:conclusion}. The required story summary and reproducibility details are provided in the
-appendices.
+decisions. \autoref{chap:experiments} specifies the byte-verified universe, nested folds, models,
+metrics, and provenance rules. Results are reported in \autoref{chap:results}, interpreted in
+\autoref{chap:discussion}, and summarized in \autoref{chap:conclusion}. The required story summary
+and reproducibility details are provided in the appendices.

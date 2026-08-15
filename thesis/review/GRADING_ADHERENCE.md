@@ -1,62 +1,46 @@
 # Grading and Task Adherence Review
 
-This review maps the thesis package to the supplied IML BSc grading guideline and to the canonical
-thesis task history. It describes the current technical state; it does not represent institutional
-approval or submission.
+This review maps the thesis package to the supplied IML BSc grading guideline. It describes
+repository evidence and remaining author-owned checks; it does not represent institutional approval.
 
 ## Grading guideline
 
 | component | weight | evidence and present status |
 | --- | ---: | --- |
-| Scientific work | 50% | The pipeline, real-data medium experiment, persistence baseline, validation-only selection, trajectory-balanced metrics, paired trajectory uncertainty, and limitations are documented. The seed-52 result is one retrospective test realization with one training seed and five trajectories; its interval includes zero. Matched seeds and an unseen test set or nested group cross-validation remain outstanding. |
-| Scientific documentation and code | 10% | Setup, data contract, configurations, CLI dry-runs, artifact provenance, synthetic fallback, tests, and reproducibility commands are present. A current clean run of the repository gates, exact coverage, and a source-linked public release remain required; this file does not certify them. |
-| Manuscript | 40% | The LaTeX source contains the required sections, abstracts, story summary, figures, tables, and references. Page count, word count, unresolved references, overfull boxes, links, and visual quality must be re-audited on the PDF built from the current source. |
-| Plagiarism/originality | pass condition | Automated source preparation cannot certify originality. The author must run the institutionally appropriate check and accept responsibility for citations, wording, and any required AI-assistance disclosure. |
+| Scientific work | 50% | A frozen, retrospective five-fold nested group cross-validation study covers 51 manifest-/byte-verified trajectories, five matched seeds, validation-only selection, trajectory-balanced metrics, paired uncertainty, and explicit limitations. The primary interval is strictly positive for learned minus observed persistence, so the negative result is reported without a superiority claim. |
+| Scientific documentation and code | 10% | Portable setup, data contract, configs, CLI dry-runs, synthetic fallback, lineage checks, stage ledger, sanitized release, disabled-W&B evidence, tests, and reproducibility commands are present. Final local gates and PDF audits must be rerun from the final worktree before submission. |
+| Manuscript | 40% | The source contains the required title/abstract, introduction, method, implementation, experiment, results, discussion, conclusion, story-summary appendix, references, figures, tables, and reproducibility appendix. The rebuilt PDF audit is the final authority for page count, words, links, references, overfull boxes, and visual quality. |
+| Plagiarism/originality | pass condition | The author must run the institutionally appropriate originality check, review citations and wording, and complete any required AI-assistance disclosure. Repository automation cannot certify originality. |
 
 ## Scientific claim control
 
-- Primary diagnostic metric: trajectory-balanced observed-flux RMSE.
-- Validation-selected learned family: cache-normalized causal Transformer, validation flux RMSE
-  `18.179277`; each sequence checkpoint is selected by validation latent RMSE before this family
-  comparison.
-- Retrospective audit point estimates: observed-flux persistence `3.720813`; Transformer
-  `11.425478`; decoded latent persistence `11.988926`; diagnostic-head oracle `12.071241`.
-- Primary conclusion: the learned model does not beat the observed diagnostic baseline, and the
-  oracle identifies the frozen diagnostic head as a limiting factor.
-- The record contains one training seed, five trajectories, and a previously inspected manifest;
-  it supports no significance, repeatability, or general-superiority claim.
-- Historical mixed-seed values, including `9.2270`, are retained only as explicitly invalidated
-  audit evidence.
-- Generalization beyond the 51-trajectory subset, five validation trajectories, five test
-  trajectories, one training seed, and eight-step horizon is not claimed.
+- Primary metric: trajectory-balanced observed-flux RMSE.
+- Accepted evidence: 230 stages plus 25 explicitly skipped unselected-family test slots; five
+  outer folds and five matched seeds.
+- Selected family: Transformer in folds 0, 1, and 3; GRU in folds 2 and 4. No global winner is
+  claimed.
+- Primary estimate: learned 14.6729, observed persistence 10.0207, difference +4.6522, bootstrap
+  95% interval [+2.5788, +6.6470].
+- Secondary estimate: learned minus decoded latent-persistence latent MSE +0.0189, interval
+  [-0.0699, +0.1332].
+- Diagnostic-head oracle: 12.3732 flux RMSE; an analysis control, not a forecast ceiling or proof
+  of a single bottleneck.
+- Generalization beyond this 51-trajectory universe, preprocessing revision, targets, and
+  eight-step horizon is not claimed.
 
-## Canonical task-history adherence
+## Task-history adherence
 
-- `THESIS-01` through `THESIS-21`: task status in an external database is not evidence of technical
-  or scientific correctness. Each claimed deliverable must be checked against the repository and
-  accepted artifacts.
-- `THESIS-22`: remains Waiting because matched external GyroSwin artifacts are unavailable. The
-  manuscript therefore treats GyroSwin as related work and makes no direct numerical comparison.
-- `THESIS-23`: source, figures, tables, references, reproducibility appendix, and review checklist
-  exist. The current-source PDF build and page-level review remain to be recorded.
-- `THESIS-24`: package naming and provenance requirements are documented. No public W&B URL or
-  evidence-release link is claimed after the historical project was pruned; a future protocol must
-  create a new sanitized record before release.
-- `THESIS-25`: the filename convention and human-only submission checklist are prepared. Formal
-  upload, grade request, and any institutional declarations remain external actions.
+- The software, data contract, protocol runner, aggregate, release manifest, thesis source, figures,
+  tests, and review materials are present in the repository.
+- GyroSwin remains related work because no matched checkpoint/data/metric bundle is available; no
+  direct numerical comparison is made.
+- W&B is disabled and locally verified for all 225 accepted metric stages; no public run URL is claimed.
+- Historical mixed-split and seed-52-only values are withdrawn from thesis evidence and do not
+  appear in the current result chapters.
 
-## Review package
+## Author-owned checks before formal submission
 
-- Intended PDF name: `2026S-12340334-Yelisieiev_Volodymyr-Thesis_BSc-v1-Latent_Surrogates.pdf`.
-- PDF and source-archive SHA-256 values must be generated from the final reviewed files; this review
-  does not assert that a current release package exists.
-- Identity recorded in the PDF: matriculation number `12340334`, supervisor Gianluca Galletti,
-  programme Artificial Intelligence.
-
-## Remaining human checks
-
-- Read and accept every page, citation, number, link, and scientific formulation.
-- Confirm whether the title page requires the supervisor's academic title or different official
-  degree wording.
-- Complete the required originality check and any institutional declaration.
-- Obtain any required external approval, then submit through the official channel.
+- Read every page and verify every number, citation, name, link, and claim boundary.
+- Confirm official thesis title, supervisor title, degree wording, submission date, and filename.
+- Run the institutional originality check and add any required originality or AI-use statement.
+- Obtain supervisor approval and submit through the official channel.

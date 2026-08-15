@@ -12,8 +12,8 @@
 7. Evaluate validation flux RMSE with `gks evaluate-flux-head`.
 8. Generate PCA/t-SNE representation plots with `gks plot-representation`.
 9. Train latent sequence models from cache windows and preserve original telemetry.
-10. Select sequence checkpoints by validation latent RMSE and model families by validation flux
-    RMSE, both on validation only, then evaluate the frozen final protocol.
+10. Select sequence checkpoints by validation latent RMSE and model families by the mean validation
+    flux RMSE across matched seeds, both on validation only, then evaluate the frozen outer folds.
 11. Link accepted raw metrics and figure-source tables through an accepted-run manifest.
 
 Before real-data training, follow `docs/real_data_binding_checklist.md`. The first
@@ -46,7 +46,8 @@ Outputs, checkpoints, runs, raw data, and generated HDF5 files are gitignored.
 Full resolved configs are written as `config_resolved.yaml` by normal commands that have
 an output directory; dry-runs intentionally do not create that artifact.
 
-The next accepted comparison uses matched learned-model training seeds `52`--`56`. Use at least
-ten previously uninspected trajectories for a final test. If that is impossible, run the frozen
-five-fold nested group cross-validation fallback and describe the result as retrospective. Do not
-reuse the known seed-52 test manifest as new confirmation evidence.
+The accepted comparison uses matched learned-model training seeds `52`--`56` and the frozen
+five-fold nested group cross-validation fallback because the available universe was already part of
+development. It is reported as retrospective, not as a pristine locked test. A future unseen set
+of at least ten trajectories must be frozen before model selection and assigned a new protocol ID;
+the known seed-52 manifest must not be reused as confirmation evidence.

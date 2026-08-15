@@ -3,24 +3,54 @@
 \label{chap:conclusion}
 
 This thesis developed and audited a compact latent time-series surrogate for preprocessed
-five-dimensional gyrokinetic turbulence snapshots. The JAX/Flax pipeline covers data inspection,
-conservative augmentation, joint representation and diagnostic training, latent caching, multiple
-temporal models, recursive rollout, trajectory-balanced metrics, and artifact provenance. A
-synthetic fallback and extensive verification suite make the software testable without private data
-or GPU hardware.
+five-dimensional gyrokinetic turbulence snapshots. The JAX/Flax implementation covers a
+channel-first data contract, Cyclone/KvikIO loading, a 128-dimensional encoder, diagnostic heads,
+latent caching, GRU and causal Transformer sequence models, recursive rollouts, trajectory-balanced
+metrics, and artifact lineage. Synthetic fixtures and a CPU fallback make the engineering path
+testable without private data or a GPU. The result is a complete research instrument rather than a
+claim that a small model replaces a gyrokinetic solver.
 
-The final experiment uses one canonical trajectory split from representation learning through
-evaluation. The cache-normalized Transformer was selected as the best learned model on validation
-flux RMSE and then evaluated on a test split that is now reported retrospectively. It obtains flux
-RMSE 11.4255, compared with 11.9889 for decoded latent persistence and 3.7208 for direct
-observed-flux persistence. The diagnostic-head oracle is 12.0712 even on true future latents;
-therefore the experiment does not support a learned-model advantage and identifies the diagnostic
-head as a major limitation.
+The scientific comparison was deliberately rebuilt after an integrity audit found incompatible
+trajectory-split seeds in an earlier exploratory result. Those numbers were withdrawn. The
+accepted evidence binds representation learning, cache construction, sequence training, validation
+selection, and outer evaluation to a manifest-/byte-verified universe of 51 trajectories. It uses
+five outer group folds and five matched training seeds. Within each fold, sequence checkpoints are
+chosen by validation latent RMSE and the learned family is selected by the mean validation flux
+RMSE over seeds. Transformer is selected in folds 0, 1, and 3; GRU is selected in folds 2 and 4.
+This two-level rule is explicit and never opens outer-test evidence for selection.
 
-The selected representation and training budget did not beat the appropriate observed diagnostic
-baseline. Matched seeds, an unseen test set or nested group cross-validation, and strict
-validation-only selection are required before making a broader model claim. The thesis makes no
-claim about full-field reconstruction, long-term forecasting, broad gyrokinetic generalization,
-solver speedup, or superiority to GyroSwin. Its main contribution is
-the implemented pipeline, its lineage checks, and a documented account of where the present
-evidence remains weak.
+The answer to the central research question is negative for the declared setting. The selected
+learned models have aggregate flux RMSE 14.6729, whereas direct persistence of the observed flux
+has 10.0207. The learned-minus-observed difference is +4.6522, with a 10,000-replicate hierarchical
+bootstrap interval [+2.5788, +6.6470]. Every outer-fold point difference is positive, and the
+hierarchically weighted fraction of improved trajectory runs is 31.6\%. The correct conclusion is
+therefore that the compact latent surrogate does not improve the strong observed-diagnostic
+baseline at this horizon. This is a bounded negative result, not evidence that latent surrogates or
+learned temporal models can never be useful.
+
+The secondary evidence is consistent with that interpretation. Decoded latent persistence has
+flux RMSE 14.8049, and its latent MSE is 0.4307 compared with 0.4497 for the learned model. The
+learned-minus-persistence latent difference is +0.0189 with interval [-0.0699,+0.1332], so no
+latent-dynamics advantage is established. The diagnostic-head oracle, supplied with true future
+latents, reaches 12.3732: it exposes a material gap in the representation-to-diagnostic pipeline,
+but it remains worse than observed persistence and does not isolate a single bottleneck. Spectral
+relative errors and shape correlations likewise favour observed persistence, especially for
+$\code{kyspec}$, while their separate reporting avoids a misleading pooled score.
+
+The methodological contribution is as important as the numerical result. The stage ledger records
+230 accepted and 25 skipped unselected-family slots; selection records state that test evidence was
+not opened; each stage has resolved configuration and artifact hashes; and W\&B is explicitly
+disabled rather than silently missing. The release manifest is path-sanitized and tied to the
+frozen source tag, dataset revision, universe hash, fold hash, bootstrap seed, and result tables.
+These controls make a less favourable conclusion more credible than a stronger number obtained from
+an inconsistent split. They also provide a practical template for future model changes: freeze a
+new protocol ID, bind a new universe, and repeat the same audit rather than editing the old result.
+
+The claims remain intentionally narrow. The experiment does not establish full-field
+reconstruction, long-horizon stability, physical-unit accuracy, solver speedup, generalization to
+other regimes, or a direct numerical comparison with GyroSwin. Raw data, checkpoints, caches, and
+trajectory rows require authorized server access. A future study should first improve the spatial
+representation and diagnostic heads, then test a genuinely unseen trajectory set or a new nested
+universe under a separately frozen protocol. Until a learned model reliably beats observed
+persistence across such revisions, persistence remains the appropriate reference and a complex
+architecture should not be presented as a surrogate success merely because its outputs are finite.

@@ -1,38 +1,37 @@
 # W&B tracking
 
-Weights & Biases is optional and disabled by default. Local resolved configurations, metrics,
-checkpoint hashes, and protocol manifests remain the source of truth; W&B is only a telemetry
-mirror. Tests and CI never require an account, network access, or a mutable remote project.
+Weights \& Biases is optional and disabled by default. Local resolved configurations, metrics,
+checkpoint hashes, stage evidence, and protocol manifests are the source of truth; W\&B is only an
+optional telemetry mirror and is never required for tests or CI.
 
-## Current status
+## Accepted result
 
-The project `gk-latent-surrogate` was emptied during the scientific audit. The historical
-post-hoc runs and their tags were deleted, so this repository intentionally contains no live W&B
-run IDs or result URLs. The old records must not be recreated or cited as if they were original
-training telemetry.
+The frozen multi-seed protocol requested W\&B disabled for every accepted metric stage. The aggregate independently
+validated each local `wandb_status.json` and the release manifest records:
 
-## New accepted runs
+```json
+{"enabled": false, "requested": false, "mode": "disabled", "config_verified": true}
+```
 
-Create the frozen protocol before the first run. Use its immutable `protocol_id` as the W&B group
-and record the run ID in the local accepted-run manifest only after the local metrics and artifact
-hashes have been checked. Every run should include:
+No accepted stage has a live W&B run ID or URL. The thesis therefore does not cite a dashboard or
+claim public online evidence. The ignored repository-root `wandb/` directory contained stale
+historical telemetry and is pruned during packaging. The accepted experiment's 225 tiny local
+status files are retained in the compact ignored `outputs/multiseed-v1/wandb_status/` archive for
+audit; model checkpoints and telemetry payloads are not.
 
-- source commit/tag and tracked-diff hash;
-- dataset revision, universe/split hashes, and training seed;
-- resolved-config hash, stage, model family, normalization, context, horizon, and units;
-- upstream encoder, diagnostic-head, latent-cache, and sequence-checkpoint hashes;
-- device/backend metadata and the actual checkpoint-selection metric;
-- raw per-trajectory metrics and the exact figure/table source data.
+post-hoc runs are not evidence for the accepted result and must not be substituted for the frozen
+stage ledger or used to select a more favorable seed, fold, or architecture.
 
-Retries are separate records and are excluded from an accepted comparison unless the protocol
-records the failure and replacement rationale. Persistence has no training telemetry, but it must
-use the same trajectory universe, horizon, diagnostic lineage, and aggregation as the learned
-model.
+## If a future protocol enables W&B
 
-## Visibility and deletion
+Create the frozen protocol before the first run and use its immutable ID as the W&B group. Every
+accepted record must include the source tag and tracked-diff hash, dataset revision and split
+hashes, training seed, resolved configuration hash, model/checkpoint lineage, backend metadata,
+checkpoint-selection metric, and raw per-trajectory metric hash. Retries are separate records and
+are excluded from accepted comparisons unless the protocol records the failure and replacement
+rationale.
 
-Do not publish a W&B link until it has been checked while signed out and the project policy permits
-anonymous read access. If public access is not appropriate, retain a sanitized offline manifest
-without raw data, checkpoints, latent caches, private paths, usernames, or credentials. When a
-record is invalidated or a project is pruned, mark it deleted in the local audit notes and remove
-all public-facing URLs; do not leave stale links in thesis prose.
+Do not publish a W&B link until it has been checked while signed out and anonymous access is
+permitted. If public access is inappropriate, retain a sanitized offline manifest without raw data,
+checkpoints, latent caches, private paths, usernames, or credentials. Invalidated records must be
+marked as such and removed from thesis-facing prose.

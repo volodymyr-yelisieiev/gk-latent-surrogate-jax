@@ -95,6 +95,12 @@ def test_aggregation_scalar_helpers_fail_closed(tmp_path: Path) -> None:
         _require_equal(1, 2, label="value")
     with pytest.raises(AggregationError, match="mismatch"):
         _require_close(1.0, 2.0, label="value")
+    # JAX writes float32 reductions while the independent pass recomputes
+    # means from decimal JSON values; a few ulps are accepted, but not a
+    # substantive scalar discrepancy.
+    _require_close(13.978230476379395, 13.978228855133057, label="float32 reduction")
+    with pytest.raises(AggregationError, match="mismatch"):
+        _require_close(1.0, 1.00001, label="substantive discrepancy")
     with pytest.raises(AggregationError, match="empty groups"):
         _hierarchical_mean({})
     with pytest.raises(AggregationError, match="at least 100"):

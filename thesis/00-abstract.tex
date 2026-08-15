@@ -1,30 +1,31 @@
 \cleardoubleoddpage
 \begin{otherlanguage}{english}
 \begin{abstract*}
-Nonlinear gyrokinetic simulations evolve high-dimensional distribution functions and are
-computationally demanding. This thesis investigates whether a compact latent surrogate can predict
-short-horizon dynamics while retaining information needed for turbulent-transport diagnostics. A
-GPU-first pipeline is implemented in JAX and Flax for channel-first five-dimensional snapshots. A
-convolutional encoder maps each snapshot to a 128-dimensional latent vector and is trained with a
-SimSiam-style consistency objective plus supervised heads for scalar flux and two one-dimensional
-spectra. Persistence, gated recurrent unit, and causal Transformer models then predict future
-latents from an eight-step context.
+Nonlinear gyrokinetic simulations evolve high-dimensional distributions and are computationally
+demanding. This thesis tests whether a compact latent surrogate can predict short-horizon dynamics
+while preserving turbulent-transport diagnostics. A GPU-first JAX/Flax pipeline handles
+channel-first five-dimensional snapshots. A convolutional encoder produces a 128-dimensional state
+and is trained with SimSiam-style consistency and supervised heads for scalar flux and two spectra.
+Persistence, gated recurrent unit (GRU), and causal Transformer models forecast future latents from
+an eight-step context.
 
-A data-integrity audit found that an earlier comparison used inconsistent trajectory-split seeds
-between representation learning and downstream evaluation; those numbers were withdrawn. The
-corrected reproduction fixes trajectory-split seed 52 throughout and selects the learned model on five validation
-trajectories. Its five-trajectory test is reported as a retrospective single realization because
-the manifest was inspected during more than one retained evaluation. The cache-normalized
-Transformer was the best learned validation candidate. In the eight-step test, its flux root
-mean squared error is 11.4255. Latent-state persistence decoded by the same learned head gives
-11.9889, but direct persistence of the observed flux gives 3.7208. Applying the head to the true
-future latents still gives 12.0712, showing that diagnostic-head error limits this comparison.
-The learned model therefore does not improve flux forecasting over the appropriate observational
-baseline. The work
-weights rollout aggregates equally by trajectory, and every reported artifact is bound to an
-auditable split manifest. It contributes an auditable latent-surrogate pipeline and one limited
-short-horizon negative result; it does not establish model superiority, full-field reconstruction, long-horizon accuracy, or a
-direct numerical advantage over GyroSwin.
+An integrity audit withdrew earlier numbers that used inconsistent trajectory-split seeds. The
+accepted experiment binds the pipeline to a manifest-/byte-verified 51-trajectory universe and
+retrospective five-fold nested group cross-validation with five matched seeds; it is not a pristine
+locked test. Architecture selection uses inner validation: Transformer in folds 0, 1, and 3 and
+GRU in folds 2 and 4. On paired outer tests, learned flux RMSE is 14.6729 versus 10.0207 for
+observed persistence. The difference is +4.6522 with a 10,000-replicate hierarchical bootstrap
+interval of [+2.5788, +6.6470]; 31.6\% of hierarchically weighted paired runs improve. Latent
+persistence is 14.8049; the learned-minus-latent MSE difference is +0.0189 with interval
+[-0.0699, +0.1332]. A true-latent oracle reaches 12.3732, indicating a material
+representation-to-diagnostic gap without isolating a single bottleneck, but still not beating
+observed persistence.
+
+The result is a defensible negative finding: the surrogate does not improve the declared diagnostic
+baseline under this short-horizon protocol. The work contributes an auditable pipeline, exact
+lineage, W\&B-disabled provenance, and explicit limitations; it does not establish full-field or
+long-horizon accuracy, broad gyrokinetic generalization, or a direct numerical comparison with
+GyroSwin.
 \end{abstract*}
 \end{otherlanguage}
 
@@ -42,19 +43,25 @@ trainiert. Persistenz-, GRU- und kausale Transformer-Modelle sagen anschließend
 Kontextschritten zukünftige latente Zustände voraus.
 
 Eine Datenintegritätsprüfung zeigte, dass ein früherer Vergleich unterschiedliche Seeds für die
-Trajektorienaufteilung verwendete; diese Zahlen wurden zurückgezogen. Die korrigierte Reproduktion
-verwendet durchgehend Seed 52 für die Trajektorienaufteilung und wählt das gelernte Modell auf fünf
-Validierungstrajektorien.
-Der Test mit fünf Trajektorien wird als retrospektive Einzelrealisierung berichtet, da das Manifest
-in mehr als einer gespeicherten Auswertung untersucht wurde. Der cache-normalisierte Transformer
-war der beste gelernte Validierungskandidat und erreicht im Acht-Schritt-Test einen
-Fluss-RMSE von 11,4255. Latente Persistenz, die mit demselben gelernten Diagnosekopf dekodiert wird,
-ergibt 11,9889; direkte Persistenz des beobachteten Flusses erreicht dagegen 3,7208. Selbst der auf
-die wahren zukünftigen latenten Zustände angewandte Diagnosekopf ergibt 12,0712. Das gelernte Modell
-verbessert die Flussvorhersage somit nicht gegenüber der geeigneten beobachtungsbasierten Referenz. Der Beitrag umfasst eine nach Trajektorien gleich gewichtete Auswertung,
-eine überprüfbare Zuordnung jedes berichteten Artefakts zur Datenaufteilung sowie eine
-nachvollziehbare Pipeline mit klar begrenzter empirischer Evidenz;
-vollständige Feldrekonstruktion, Langzeitgenauigkeit und ein direkter numerischer Vorteil
-gegenüber GyroSwin werden nicht behauptet.
+Trajektorienaufteilung verwendete; diese Zahlen wurden zurückgezogen. Das akzeptierte Experiment
+bindet die vollständige Pipeline an ein manifest-/byte-verifiziertes Universum von 51 Trajektorien
+und nutzt eine retrospektive fünffache verschachtelte Gruppen-Kreuzvalidierung mit fünf passenden
+Trainings-Seeds; sie ist kein unangetasteter Locked-Test. Die Architekturwahl erfolgt nur auf inneren
+Validierungsdaten; in den Falten 0, 1 und 3 wird ein Transformer, in den Falten 2 und 4 ein GRU
+gewählt. Die gepaarte äußere Schätzung ergibt für das gelernte Modell einen Fluss-RMSE von
+14,6729 gegenüber 10,0207 für die direkte Persistenz des beobachteten Flusses. Die Differenz
+gelernte Methode minus Beobachtung beträgt +4,6522, mit einem hierarchischen Bootstrap-Intervall
+von [+2,5788, +6,6470]; der hierarchisch gewichtete Anteil verbesserter gepaarter Trajektorienläufe
+beträgt 31,6\%. Dekodierte latente Persistenz erreicht 14,8049; die Differenz im latenten Raum
+beträgt +0,0189 mit Intervall [-0,0699, +0,1332]. Ein Oracle, das dem eingefrorenen Diagnosekopf
+die wahren zukünftigen latenten Zustände gibt, erreicht 12,3732 und zeigt eine materielle Lücke in
+der Repräsentation-Diagnose-Pipeline, ohne eine einzelne Ursache zu isolieren; auch das Oracle
+übertrifft die beobachtete Persistenz nicht.
+
+Das Ergebnis ist ein belastbarer negativer Befund: Unter dem eingefrorenen kurzfristigen Protokoll
+verbessert das kompakte Ersatzmodell die deklarierte diagnostische Referenz nicht. Die Arbeit
+liefert eine überprüfbare Pipeline, genaue Artefaktlinien und eine reproduzierbare, W\&B-freie
+Provenienz; vollständige Feldrekonstruktion, Langzeitgenauigkeit, breite gyrokinetische
+Verallgemeinerung und ein direkter numerischer Vergleich mit GyroSwin werden nicht behauptet.
 \end{abstract*}
 \end{otherlanguage}

@@ -30,14 +30,20 @@ runtime dependency are outside the implemented scope.
 
 ## Result status
 
-No learned-model superiority claim is currently accepted. The retained seed-52 comparison is
-retrospective and uses a frozen diagnostic head; decoded latent persistence and the Transformer
-are not substitutes for direct persistence of the observed flux. The audit gives flux RMSE
-`3.7208` for observed-flux persistence, `11.4255` for the selected Transformer, `11.9889` for
-decoded latent persistence, and `12.0712` for the diagnostic-head oracle on true future latents.
-The oracle result shows that the current head, rather than temporal forecasting alone, limits the
-diagnostic comparison. The multi-seed protocol is planned but has not been run; see
-`docs/result_status.md` and `experiment_protocols/multiseed_v1.json`.
+The accepted thesis evidence is the retrospective five-fold nested group cross-validation release
+in `experiment_protocols/multiseed_v1_results.json`. It covers 51 manifest-/byte-verified
+trajectories, five matched training seeds, 230 accepted ledger slots (225 metric stages and five
+selection barriers), and 25 explicitly skipped
+unselected-family test stages. The selected family is Transformer in folds 0, 1, and 3 and GRU in
+folds 2 and 4; it is not a global architecture ranking.
+
+The primary selected-model flux RMSE is `14.6729`, versus `10.0207` for direct observed-flux
+persistence. The learned-minus-observed difference is `+4.6522` with a hierarchical bootstrap
+95% interval `[+2.5788, +6.6470]`, so the result is a defensible negative finding: no learned-model
+advantage is claimed. Decoded latent persistence is `14.8049`, the diagnostic-head oracle is
+`12.3732`, and the secondary latent-MSE difference is `+0.0189` with interval `[-0.0699, +0.1332]`.
+W&B is disabled and verified locally for all 225 accepted metric stages; no live run URL is claimed. See
+`docs/result_status.md` and `docs/experiment_provenance.md` for the evidence contract.
 
 ## Installation and verification
 

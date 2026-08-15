@@ -28,6 +28,12 @@ BOOTSTRAP_DEFAULT_SEED = 20260813
 BOOTSTRAP_DEFAULT_REPLICATES = 10_000
 EXPECTED_FOLDS = tuple(range(5))
 EXPECTED_FAMILIES = ("gru", "transformer")
+# Stage scalars are accumulated in JAX float32, while the independent pass
+# recomputes them from decimal JSON trajectory values (NumPy float64).  A few
+# ulps of reduction-order error are therefore expected; this remains tight
+# enough to reject substantive evidence mismatches.
+_SCALAR_RECOMPUTE_REL_TOL = 1e-6
+_SCALAR_RECOMPUTE_ABS_TOL = 3e-6
 
 
 class AggregationError(ValueError):
@@ -107,7 +113,12 @@ def _require_equal(actual: object, expected: object, *, label: str) -> None:
 
 def _require_close(actual: object, expected: float, *, label: str) -> None:
     value = _finite(actual, label=label)
-    if not math.isclose(value, expected, rel_tol=1e-7, abs_tol=1e-7):
+    if not math.isclose(
+        value,
+        expected,
+        rel_tol=_SCALAR_RECOMPUTE_REL_TOL,
+        abs_tol=_SCALAR_RECOMPUTE_ABS_TOL,
+    ):
         raise AggregationError(f"{label} mismatch: expected {expected!r}, got {value!r}")
 
 

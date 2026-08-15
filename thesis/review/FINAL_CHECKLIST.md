@@ -1,53 +1,49 @@
 # Final Thesis Checklist
 
-Status: review draft with unresolved scientific and external checks. No external communication or
-submission has been performed.
+Status: technically complete evidence package; formal submission and originality checks remain
+author-owned actions. No external communication or submission has been performed.
 
 ## Present in the source
 
-- [x] Requirements from the IML BSc Thesis Seminar document mapped to the package.
-- [x] JKU report template v2.2 vendored with its license and font licenses.
-- [x] English and German abstracts included.
-- [x] Research question, scope, contributions, related work, method, implementation, experiments,
-  results, discussion, limitations, and conclusion written.
-- [x] Nine-question story summary included as Appendix A, with no answer exceeding three sentences.
-- [x] Reproducibility appendix includes commands, artifact paths, hashes, and availability limits.
-- [x] Author--year bibliography included and compiled.
-- [x] Main numeric claims distinguish observed-flux persistence from decoded latent persistence,
-  label the retained run retrospective, and report the diagnostic-head oracle as an analysis control.
-- [x] The draft does not claim full-field reconstruction or a matched numerical comparison with
-  GyroSwin.
-- [ ] Rebuild the PDF from the current source and record the manuscript-audit result.
-- [ ] Run the current repository verification gates and record their exact output; do not reuse an
-  earlier test count or coverage percentage.
-- [x] Remove historical W&B URLs and state that no public evidence-release URL is claimed.
-- [ ] Create and audit a sanitized evidence manifest for the frozen multi-seed protocol if that
-  protocol produces accepted results.
-- [ ] Complete matched seeds 52--56 under the frozen protocol before replacing the retrospective
-  result with a replicated claim.
+- [x] JKU report template v2.2 and its license files.
+- [x] English and German abstracts, research question, scope, contributions, related work, method,
+      implementation, experiments, results, discussion, limitations, and conclusion.
+- [x] Nine-question story summary with no answer exceeding three sentences.
+- [x] Reproducibility appendix with frozen protocol, hashes, commands, stage counts, result summary,
+      W&B status, and data-availability boundaries.
+- [x] Retrospective five-fold nested group cross-validation with matched seeds 52--56 and
+      validation-only selection.
+- [x] Sanitized release manifest with 230 accepted and 25 skipped stage slots.
+- [x] Primary negative result reported with point estimate and hierarchical bootstrap interval.
+- [x] Historical mixed-split/seed-52-only claims removed from thesis-facing evidence.
+- [x] No full-field reconstruction, long-horizon, solver-speed, or matched GyroSwin claim.
+- [x] No live W&B URL; all 225 accepted metric-stage status records state W&B disabled and verified.
+
+## Technical checks to rerun from the final worktree
+
+- [ ] `make check` passes with the final source and coverage gate.
+- [ ] `make smoke-all` passes on the CPU fallback.
+- [ ] `uv build` succeeds.
+- [ ] `make -C thesis audit` succeeds and the PDF is rebuilt from current sources.
+- [ ] `python3 thesis/scripts/audit_pdf.py --pdf thesis/build/main-thesis.pdf --log thesis/build/main-thesis.log --output thesis/build/manuscript-audit.json` passes.
+- [ ] Inspect every PDF page and all figures at readable scale.
+- [ ] Confirm no unresolved references, overfull boxes, stale numbers, private paths, or generated
+      artifacts are tracked.
 
 ## Required human confirmations
 
-- [x] Record matriculation number `12340334`.
-- [x] Record supervisor `Gianluca Galletti` as supplied by the author.
-- [x] Record study code `033 536` with the Artificial Intelligence programme.
-- [ ] Confirm whether the official title page requires an academic title for the supervisor.
-- [ ] Confirm the official degree wording: `Bachelor of Science` and `Artificial Intelligence`.
-- [ ] Confirm the final title with the supervisor.
-- [ ] Confirm the submission month/date and the semester code used in the filename.
-- [ ] Verify whether an institutional declaration of originality or AI-use statement must be added.
-- [ ] Read every page and verify all technical statements, citations, numbers, names, and links.
+- [x] Matriculation number `12340334`, supervisor `Gianluca Galletti`, and supplied programme/study
+      code are recorded.
+- [ ] Confirm official title-page wording, supervisor academic title, submission date, semester,
+      and filename.
+- [ ] Run the institutional originality check and add any required declaration or AI-use statement.
+- [ ] Read and accept every page, citation, number, name, and link.
 - [ ] Obtain supervisor feedback and incorporate approved corrections.
-- [ ] Confirm that all mandatory seminar lectures have been watched.
 
-## External submission sequence (on hold)
+## External submission sequence
 
-- [ ] Build the final PDF after the final author review.
-- [x] Prepare a correctly named review candidate:
-  `2026S-12340334-Yelisieiev_Volodymyr-Thesis_BSc-v1-Latent_Surrogates.pdf`.
-- [ ] Upload the PDF through the IML thesis hand-in link.
-- [ ] Email the submitted report to the supervisor.
-- [ ] Submit the grade-request form.
-- [ ] Email the supervisor asking them to enter the grade.
+- [ ] Build the final PDF after author review.
+- [ ] Upload through the official IML hand-in link.
+- [ ] Email the submitted report to the supervisor and complete the grade-request procedure.
 
-Do not submit while any placeholder remains or before completing the author review.
+Do not submit while any author-owned confirmation remains unresolved.

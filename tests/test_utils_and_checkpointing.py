@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import builtins
+import csv
 import hashlib
 import json
 import pickle
@@ -15,7 +16,7 @@ import pytest
 
 from gk_surrogate.training import logging as logging_module
 from gk_surrogate.training.checkpointing import latest_checkpoint, load_checkpoint, restore_train_state, save_checkpoint
-from gk_surrogate.training.logging import MetricsLogger, collect_git_info
+from gk_surrogate.training.logging import MetricsLogger, append_csv, collect_git_info
 from gk_surrogate.training.rng import PRNGSequence, fold_in_rng, make_rng, split_rng
 from gk_surrogate.training.state import TrainState
 from gk_surrogate.utils.arrays import as_float32, assert_rank, ensure_finite_tree, mean_squared_error, to_numpy
@@ -68,6 +69,20 @@ def test_utils_training_state_checkpoint_and_logging(tmp_path):
     logger.log({"loss": 1.0})
     logger.write_summary({"loss": 1.0})
     assert collect_git_info(tmp_path)["git_available"] in {True, False}
+
+
+def test_append_csv_keeps_rectangular_union_schema(tmp_path):
+    path = tmp_path / "metrics.csv"
+    append_csv(path, {"step": 1, "train/loss": 0.5})
+    append_csv(path, {"step": 2, "validation/loss": 0.4, "flux_rmse": 1.2})
+
+    with path.open(newline="", encoding="utf-8") as handle:
+        reader = csv.DictReader(handle)
+        rows = list(reader)
+
+    assert reader.fieldnames == ["step", "train/loss", "validation/loss", "flux_rmse"]
+    assert all(None not in row for row in rows)
+    assert rows[0]["validation/loss"] == ""
 
 
 def test_collect_git_info_records_exact_patch_hash_and_untracked_paths(tmp_path):

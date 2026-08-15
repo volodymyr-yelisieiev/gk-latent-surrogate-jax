@@ -2,173 +2,167 @@
 \chapter{Results}
 \label{chap:results}
 
-\section{Protocol Integrity Audit}
+\section{Evidence and Selection Integrity}
 
-Before final model assessment, the retained experiment lineage was reconstructed from resolved
-configs, encoder metadata, latent-cache metadata, and trajectory identifiers. This audit found that
-the encoder and medium cache used trajectory-split seed 52, while historical downstream runs used
-seeds 53 or 54. Four of the five trajectories labelled as test under each downstream seed had
-therefore occurred in the seed-52 encoder training split. The historical headline table, including
-the previously reported flux RMSE 9.2270, is not an end-to-end held-out result and is excluded from
-the scientific conclusions.
+The accepted release is generated from the frozen protocol tag
+\texttt{protocol/multiseed-v1} (source commit prefix \texttt{be976808}; the full digest is in
+Appendix~\ref{app:reproducibility}). The
+dataset revision is the byte-verified consumed universe with revision digest
+\texttt{cyclone-consumed-bytes-sha256:ff2867e9}; the universe and outer-fold manifest digests are
+\texttt{96c85a70} and \texttt{da5d95b8}, respectively (the complete values are in the release
+manifest). The evidence tree contains 255 planned stage slots: 230 accepted ledger slots (225
+metric stages and five selection barriers) and 25 skipped because
+their learned family was not selected. There are no invalidated accepted rows.
 
-The corrected implementation records the selected trajectory identifiers, a SHA-256 manifest of
-their ordering, the data-split seed, training seed, upstream cache and checkpoint paths, horizon,
-and aggregation rule. It also rejects an encoder, cache, or sequence checkpoint whose recorded
-split seed differs from the evaluation configuration. All results below use data-split seed 52 from
-representation learning through evaluation. Validation and test manifests differ, while every row
-within a split has the same manifest.
+Every accepted metric stage is finite and stable, uses the declared fold and training seed, and records
+the expected checkpoint/cache lineage. The five selection records all report
+\code{test\_evidence\_opened=false}. The W\&B contract is disabled and verified for every accepted metric stage.
+These checks matter because a numerically plausible rollout can still be scientifically invalid if
+an encoder has seen its supposed test trajectories or if an unselected test model was inspected.
 
-The numerical rows below are a retrospective reconstruction from retained local cache, checkpoint,
-and metrics artifacts. They are not the output of the frozen multi-seed protocol now recorded in
-the repository; that protocol remains planned until its source, dataset, and W\&B provenance are
-frozen before execution.
+\section{Outer-Fold Selection}
 
-\section{Representation Inspection}
-
-\autoref{fig:representation} shows descriptive projections of the 1,173 cached latent vectors.
-Colour variation indicates association with flux, but neither PCA nor t-SNE is used as proof of
-prediction quality. Under the corrected seed-52 split, a ridge head fitted only on 943 frozen
-training latents obtains validation flux RMSE 13.1779 on 115 held-out latent points. This answers
-RQ1 quantitatively: flux is linearly accessible from the representation under the canonical split,
-without establishing that the representation is sufficient for temporal prediction.
-
-\begin{figure}[htbp]
-  \centering
-  \begin{minipage}[t]{0.48\textwidth}
-    \centering
-    \includegraphics[width=\linewidth]{pca_flux.png}
-    \small (a) PCA
-  \end{minipage}\hfill
-  \begin{minipage}[t]{0.48\textwidth}
-    \centering
-    \includegraphics[width=\linewidth]{tsne_perplexity_30_flux.png}
-    \small (b) t-SNE, perplexity 30
-  \end{minipage}
-  \caption{Descriptive projections of the medium-cache latents, coloured by scalar flux. These
-  plots support representation inspection but are not used for temporal-model selection.}
-  \label{fig:representation}
-\end{figure}
-
-\section{Validation-Based Model Selection}
-
-The model family and normalization choice are fixed using the seed-52 validation split before the
-test split is inspected. Each validation row uses five trajectories, 40 windows, an eight-step
-recursive horizon, and trajectory-balanced aggregation. Flux RMSE is the predeclared primary
-selection metric.
+The fold-level family choices are shown in \autoref{tab:fold-selection}. The selection means are
+computed from five matched validation seeds; the table does not use outer-test metrics. The
+variation in selected family is itself a result: the evidence does not justify naming a single
+globally superior architecture.
 
 \begin{table}[htbp]
   \centering
-  \caption{Seed-52 validation results used for learned-model selection. Diagnostic-head rows use
-  the frozen head; observed-flux persistence copies the measured flux directly. Lower is better.}
-  \label{tab:validation-results}
-  \scriptsize
-  \setlength{\tabcolsep}{3.5pt}
-  \begin{tabular}{lrrrrc}
+  \caption{Architecture selected independently in each outer fold. Selection uses the mean
+  validation trajectory-balanced flux RMSE over seeds 52--56; lower is better.}
+  \label{tab:fold-selection}
+  \small
+  \begin{tabular}{lrrr}
     \toprule
-    Model & Latent MSE & Flux RMSE & Flux MAE & Flux rel. error & Stable \\
+    Outer fold & Test trajectories & Selected family & Validation selection rule \\
     \midrule
-    Latent persistence, decoded & 0.4341 & 17.7557 & 12.7683 & 0.2655 & yes \\
-    Observed-flux persistence & -- & 18.7572 & -- & -- & yes \\
-    GRU & 0.6144 & 19.9275 & 14.3363 & 0.2905 & yes \\
-    Transformer & 0.4823 & 18.6828 & 14.0105 & 0.2885 & yes \\
-    GRU, cache-normalized & 0.5478 & 19.4800 & 14.7968 & 0.3112 & yes \\
-    \textbf{Transformer, cache-normalized} & \textbf{0.4560} & \textbf{18.1793} &
-      \textbf{12.9650} & \textbf{0.2664} & yes \\
+    0 & 11 & Transformer & five-seed mean flux RMSE \\
+    1 & 10 & Transformer & five-seed mean flux RMSE \\
+    2 & 10 & GRU & five-seed mean flux RMSE \\
+    3 & 10 & Transformer & five-seed mean flux RMSE \\
+    4 & 10 & GRU & five-seed mean flux RMSE \\
     \bottomrule
   \end{tabular}
 \end{table}
 
-The cache-normalized Transformer is the best learned candidate on validation flux RMSE. It does not
-beat decoded latent persistence on that split, but its point estimate is below direct observed-flux
-persistence. The retained selection uses only validation outcomes; previously
-observed test outcomes are not used to rank these candidates. GRU variants are not carried forward.
-This rule avoids choosing a candidate from the retained test rows.
+The selection is deliberately two-level. Within each seed, a sequence checkpoint is chosen by
+validation latent RMSE. The family comparison then averages the resulting validation flux RMSE
+over all five training seeds. This distinction prevents the flux metric from silently becoming a
+test-aware checkpoint rule and prevents a single lucky initialization from determining the family.
 
-Cache normalization lowers validation flux RMSE from 19.9275 to 19.4800 for the GRU and from
-18.6828 to 18.1793 for the Transformer. It improves both learned point estimates without changing
-their ranking: the Transformer remains ahead of the GRU, and decoded latent persistence remains ahead of every
-learned candidate. RQ3 is therefore answered as a consistent improvement in the two point estimates,
-but not as a ranking change or a replicated effect.
+\section{Primary Diagnostic Result}
 
-\section{Retrospective Test Comparison}
-
-After selection, the fixed cache-normalized Transformer and both persistence references are
-evaluated on the seed-52 test split. Every row uses the same five test trajectories,
-40 rollout windows, eight forecast steps, and the same stored trajectory manifest (SHA-256 prefix
-\texttt{519a2b02}).
+The primary estimand is the selected learned model minus direct observed-flux persistence in
+trajectory-balanced flux RMSE. The aggregate learned error is 14.6729, whereas observed
+persistence is 10.0207. The difference is therefore +4.6522 in favour of the baseline. The paired
+hierarchical bootstrap interval is [+2.5788, +6.6470], based on 10,000 replicates and the frozen
+bootstrap seed. It is entirely above zero, so the protocol's negative-result rule applies: the
+learned surrogate shows no convincing advantage and is, on this metric and universe, worse than
+the simple observed diagnostic persistence.
 
 \begin{table}[htbp]
   \centering
-  \caption{Retrospective seed-52 test comparison. Flux RMSE is in preprocessed target units. The
-  diagnostic-head oracle applies the frozen head to true future latents and is not a forecast.}
-  \label{tab:main-results}
-  \scriptsize
-  \setlength{\tabcolsep}{5pt}
-  \begin{tabular}{lrrc}
+  \caption{Primary outer-test estimate across five folds and five matched seeds. Positive
+  differences mean that the learned model has larger error than observed persistence.}
+  \label{tab:primary-results}
+  \small
+  \begin{tabularx}{\textwidth}{>{\raggedright\arraybackslash}X r >{\raggedright\arraybackslash}X}
     \toprule
-    Method & Latent MSE & Flux RMSE & Forecast? \\
+    Quantity & Value & Interpretation \\
     \midrule
-    Observed-flux persistence & -- & \textbf{3.7208} & yes \\
-    Transformer (cache norm.) & \textbf{0.0738} & 11.4255 & yes \\
-    Latent persistence, decoded & 0.1019 & 11.9889 & yes \\
-    Diagnostic-head oracle & 0 & 12.0712 & no \\
+    Selected learned flux RMSE & 14.6729 & lower is better \\
+    Observed-flux persistence flux RMSE & 10.0207 & primary baseline \\
+    Learned minus observed difference & +4.6522 & baseline advantage \\
+    Hierarchical bootstrap 95\% interval & [+2.5788, +6.6470] & excludes zero \\
+    Hierarchically weighted improved fraction & 31.6\% & learned error lower \\
+    Paired fold--seed--trajectory rows & 255 & finite and paired \\
     \bottomrule
-  \end{tabular}
+  \end{tabularx}
 \end{table}
 
-The distinction changes the scientific conclusion. The Transformer is 4.70\% lower than decoded
-latent persistence, but direct observed-flux persistence is substantially stronger: 3.7208 versus
-11.4255, so the learned model's error is 3.07 times as large. The five trajectory-level differences
-(Transformer minus observed persistence) have mean 7.7902 and a descriptive 95\% t interval
-$[-0.6813,16.2616]$. The interval remains wide because only five trajectories and one training seed
-are available, but the retained point estimate does not support an advantage over observational
-persistence.
-
-The diagnostic-head oracle gives flux RMSE 12.0712 even when supplied the true future latents. Its
-error is close to both latent-rollout methods and exceeds direct observed-flux persistence by a
-large margin. Thus the current flux comparison is limited primarily by the frozen diagnostic head;
-it cannot isolate temporal forecasting quality from diagnostic decoding quality.
+The hierarchically weighted fraction is not a claim that exactly 31.6\% of raw rows are an
+independent sample; it gives equal weight to folds and seeds before trajectory averaging. The
+per-fold point differences are positive in all five folds: +1.4189, +3.9495, +6.5372, +7.2051,
+and +4.1503. Thus the negative conclusion is not caused by one pathological outer split, although
+the magnitude varies substantially between folds.
 
 \begin{figure}[htbp]
   \centering
-  \begin{minipage}[t]{0.48\textwidth}
-    \centering
-    \includegraphics[width=\linewidth]{verified_latent_mse_by_step.png}
-    \small (a) Latent MSE
-  \end{minipage}\hfill
-  \begin{minipage}[t]{0.48\textwidth}
-    \centering
-    \includegraphics[width=\linewidth]{verified_flux_mse_by_step.png}
-    \small (b) Flux MSE
-  \end{minipage}
-  \caption{One-based horizon curves comparing the selected cache-normalized Transformer and
-  decoded latent-state persistence on the seed-52 test split. Shading is between-trajectory standard deviation, not a
-  confidence interval.}
-  \label{fig:selected-rollout}
+  \includegraphics[width=0.78\textwidth]{verified_primary_by_fold.png}
+  \caption{Selected-model minus observed-persistence flux RMSE by outer fold. Points are fold
+  means and bars are the release's fold-level bootstrap intervals. The zero line marks equal
+  performance; every fold is on the positive-error side.}
+  \label{fig:primary-by-fold}
 \end{figure}
 
-The selected model remains finite for every evaluated window. Its aggregate latent MSE is below
-persistence across the eight-step comparison. The flux panel is explicitly a comparison after the
-same learned head, not the observed-flux persistence result. Neither latent rollout exhibits
-uncontrolled divergence within the short horizon.
+\section{Latent Dynamics and Forecast Horizon}
+
+Decoded latent-state persistence has flux RMSE 14.8049, only slightly worse than the selected
+learned models at the aggregate level. This is a useful reference because it asks whether a
+sequence model improves on holding the encoded state fixed, but it is not the primary diagnostic
+baseline: it still passes through the learned diagnostic head. The diagnostic-head oracle, which
+receives the true future latents, reaches flux RMSE 12.3732. It is better than either latent
+rollout but remains worse than observed persistence. The result therefore identifies a material
+representation-to-diagnostic gap without isolating a single cause; the oracle is a control, not a
+forecast ceiling.
+
+The secondary latent estimand is selected learned minus latent-persistence latent MSE. Learned
+latent MSE is 0.4497 versus 0.4307 for persistence, giving +0.0189. Its interval
+[-0.0699, +0.1332] includes zero. Accordingly, the experiment does not support a claim that the
+sequence model improves latent dynamics either. The point estimate is compatible with a small
+regression or improvement under another realization, and the interval is the correct summary of
+that uncertainty.
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=0.78\textwidth]{verified_latent_mse_by_step.png}
+  \caption{Mean latent MSE by forecast step across outer folds. The ribbon is the standard
+  deviation between outer-fold means; it is not a confidence interval. Curves are generated from
+  the release's fold-level by-step arrays rather than from a selected seed.}
+  \label{fig:latent-horizon}
+\end{figure}
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=0.78\textwidth]{verified_flux_rmse_by_step.png}
+  \caption{Mean diagnostic flux RMSE by forecast step for the selected learned model, observed
+  persistence, and the diagnostic-head oracle. Shaded ribbons show between-outer-fold standard
+  deviation, not confidence intervals. The figure is a horizon diagnostic, not a new selection
+  criterion.}
+  \label{fig:flux-horizon}
+\end{figure}
+
+The horizon curves remain finite, but finiteness is a stability check rather than an accuracy
+claim. In particular, a rollout can be numerically stable while drifting systematically away from
+the observed diagnostic. The positive aggregate difference and the per-fold results are therefore
+more important than the absence of exploding values.
 
 \section{Spectral Diagnostics}
 
-The selected Transformer yields aggregate spectra relative $L_2$ 19.1686 compared with 19.5257 for
-decoded latent persistence. The value is dominated by the \code{kyspec} component (35.2386 versus 35.9227), while
-\code{fluxspec} relative errors are 3.0987 and 3.1287. Aggregate shape correlations are nearly
-identical (0.53439 versus 0.53419), so the relative-error change should not be interpreted as a
-general improvement in spectral structure. The large relative values also show that scale-sensitive
-spectral prediction remains a weakness of both approaches.
+Spectral results are kept per target, as required by the protocol. For $\code{fluxspec}$, the
+learned relative $L_2$ error is 1.5026 with shape correlation 0.6011, compared with 0.4433 and
+0.9123 for observed persistence. For $\code{kyspec}$, the learned relative $L_2$ error is 28.1003
+with shape correlation 0.7226, compared with 0.5296 and 0.9330 for observed persistence. Decoded
+latent persistence is similarly worse than observed persistence (relative $L_2$ 1.4597 for
+\code{fluxspec} and 27.2029 for \code{kyspec}).
 
-\begin{figure}[htbp]
-  \centering
-  \includegraphics[width=0.68\textwidth]{verified_spectra_mse_by_step.png}
-  \caption{Per-target spectra MSE by forecast horizon for the selected Transformer and decoded latent-state persistence
-  on the seed-52 test split. Separate panels prevent the larger
-  \code{kyspec} scale from hiding \code{fluxspec}; relative and shape metrics govern interpretation.}
-  \label{fig:spectra-horizon}
-\end{figure}
+These large, target-dependent relative errors are not combined into a single claim of spectral
+fidelity. The shape correlations show that some broad spectral ordering is retained, while the
+scale-sensitive errors show that this is insufficient for quantitative prediction. Spectra
+therefore reinforce, rather than overturn, the primary flux result.
 
-No historical mixed-split or transfer run is used as thesis evidence.
+\section{Answer to the Research Questions}
+
+RQ1 asks whether the compact state retains diagnostic information. The finite oracle and nontrivial
+spectral correlations show that the representation carries usable signal, but the oracle's error
+relative to observed persistence shows that it is not sufficient for accurate diagnostic rollout.
+RQ2 asks whether a learned sequence model beats observed persistence. Across the frozen nested
+cross-validation estimate, it does not: the interval for learned minus observed flux RMSE is
+strictly positive. RQ3 asks whether the cache-normalized architecture is a reliable winner. The
+fold selections alternate between GRU and Transformer, so no global winner is supported.
+
+No historical seed-52 values, mixed-split runs, unpaired exploratory baselines, or external
+architecture numbers are used in these conclusions. The negative result is bounded to the
+51-trajectory universe, the preprocessing contract, the eight-step horizon, and the declared
+diagnostic targets.

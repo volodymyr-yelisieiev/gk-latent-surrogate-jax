@@ -40,6 +40,11 @@ def _fold_summary(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         "latent_mse_difference",
         "learned_latent_mse",
         "latent_persistence_latent_mse",
+        "learned_latent_mse_by_step",
+        "latent_persistence_latent_mse_by_step",
+        "learned_flux_rmse_by_step",
+        "observed_flux_rmse_by_step",
+        "diagnostic_head_oracle_flux_rmse_by_step",
         "learned_flux_mae",
         "observed_flux_mae",
         "latent_persistence_flux_mae",
@@ -65,7 +70,13 @@ def _stage_config_hashes(ledger: list[dict[str, Any]]) -> dict[str, str]:
     return {key: result[key] for key in sorted(result)}
 
 
-def build_manifest(aggregate_path: Path, *, repo_root: Path, output_path: Path) -> dict[str, Any]:
+def build_manifest(
+    aggregate_path: Path,
+    *,
+    repo_root: Path,
+    output_path: Path,
+    postflight_maintenance: bool = False,
+) -> dict[str, Any]:
     aggregate = json.loads(aggregate_path.read_text(encoding="utf-8"))
     if not isinstance(aggregate, dict) or aggregate.get("status") != "accepted":
         raise ValueError("aggregate result is missing accepted status")
@@ -74,20 +85,21 @@ def build_manifest(aggregate_path: Path, *, repo_root: Path, output_path: Path) 
         raise ValueError("aggregate result is missing artifact hashes")
     source_commit = aggregate.get("source_commit")
     head = _git(repo_root, "rev-parse", "HEAD")
-    if source_commit != head:
-        raise ValueError("release must be generated at the frozen aggregate source commit")
     _digest(source_commit, label="source_commit", length=40)
     analysis_commit = aggregate.get("analysis_commit", source_commit)
-    if analysis_commit != head:
-        raise ValueError("release analysis_commit must resolve to the current HEAD")
     _digest(analysis_commit, label="analysis_commit", length=40)
     source_tag = aggregate.get("source_tag")
     if not isinstance(source_tag, str) or not source_tag.strip():
         raise ValueError("aggregate source_tag is missing")
-    if _git(repo_root, "rev-parse", "--verify", f"refs/tags/{source_tag}^{{commit}}") != head:
-        raise ValueError("aggregate source_tag does not resolve to HEAD")
+    tag_commit = _git(repo_root, "rev-parse", "--verify", f"refs/tags/{source_tag}^{{commit}}")
+    if tag_commit != source_commit:
+        raise ValueError("aggregate source_tag does not resolve to the aggregate source commit")
+    if not postflight_maintenance and source_commit != head:
+        raise ValueError("release must be generated at the frozen aggregate source commit")
+    if not postflight_maintenance and analysis_commit != head:
+        raise ValueError("release analysis_commit must resolve to the current HEAD")
     if _git(repo_root, "status", "--porcelain", "--untracked-files=all"):
-        raise ValueError("release must be generated from a clean frozen worktree")
+        raise ValueError("release must be generated from a clean worktree")
     tracked_diff = _digest(
         aggregate.get("analysis_tracked_diff_sha256"),
         label="analysis_tracked_diff_sha256",
@@ -96,6 +108,17 @@ def build_manifest(aggregate_path: Path, *, repo_root: Path, output_path: Path) 
     ledger = aggregate.get("stage_ledger", [])
     if not isinstance(ledger, list):
         raise ValueError("aggregate result is missing the stage ledger")
+    provenance = {
+        "raw_aggregate_sha256": _sha256(aggregate_path),
+        "source_commit_verified_against_HEAD": not postflight_maintenance,
+        "source_commit_verified_at_release_generation": True,
+        "postflight_maintenance_after_release": postflight_maintenance,
+        "raw_stage_ledger_not_published": True,
+        "trajectory_ids_not_published": True,
+        "server_paths_not_published": True,
+    }
+    if postflight_maintenance:
+        provenance["postflight_head_commit"] = head
     manifest = {
         "release_manifest_schema_version": "1.0.0",
         "status": "accepted",
@@ -132,13 +155,7 @@ def build_manifest(aggregate_path: Path, *, repo_root: Path, output_path: Path) 
             if key.endswith("_sha256")
         },
         "wandb_status": aggregate.get("wandb_status", {"enabled": False, "requested": False, "mode": "disabled"}),
-        "provenance": {
-            "raw_aggregate_sha256": _sha256(aggregate_path),
-            "source_commit_verified_against_HEAD": True,
-            "raw_stage_ledger_not_published": True,
-            "trajectory_ids_not_published": True,
-            "server_paths_not_published": True,
-        },
+        "provenance": provenance,
     }
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
@@ -150,8 +167,21 @@ def main() -> int:
     parser.add_argument("--aggregate", type=Path, required=True)
     parser.add_argument("--repo-root", type=Path, default=Path.cwd())
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument(
+        "--postflight-maintenance",
+        action="store_true",
+        help=(
+            "regenerate a release whose evidence source is an immutable tag but whose checkout "
+            "contains documented post-run maintenance"
+        ),
+    )
     args = parser.parse_args()
-    build_manifest(args.aggregate, repo_root=args.repo_root, output_path=args.output)
+    build_manifest(
+        args.aggregate,
+        repo_root=args.repo_root,
+        output_path=args.output,
+        postflight_maintenance=args.postflight_maintenance,
+    )
     return 0
 
 

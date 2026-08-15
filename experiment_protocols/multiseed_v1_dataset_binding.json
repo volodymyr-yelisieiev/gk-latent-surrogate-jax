@@ -1,0 +1,29 @@
+{
+  "binding_schema_version": "1.0.0",
+  "dataset_revision": "cyclone-consumed-bytes-sha256:ff2867e9eb8e9ed74dd1ed92d347b02a703368e634f86cce983c07b0754e3d7a",
+  "universe_manifest_sha256": "96c85a70119ca790ef46ba6ccbee1f75e2b37a400eed48b900194650ef35c68e",
+  "trajectory_count": 51,
+  "consumed_timestep_bin_count": 1173,
+  "consumed_input_bytes": 104548270080,
+  "sampling_contract": {
+    "bundle_seq_length": 1,
+    "fields_to_load": ["df"],
+    "offset": 80,
+    "prefer_dtype": "float32",
+    "real_potens": true,
+    "spatial_ifft": true,
+    "subsample": 8,
+    "tail_offset": 0
+  },
+  "verification": {
+    "method": "verify_cyclone_universe_manifest",
+    "status": "passed",
+    "durable_consumed_subset": "passed",
+    "public_source_alias": "passed",
+    "path_free_claim": true
+  },
+  "operational_copy_inventory": {
+    "expected_file_count": 1274,
+    "expected_logical_bytes": 127352642886
+  }
+}

@@ -1,74 +1,57 @@
 # Experiment Protocol and Provenance
 
-`experiment_protocols/multiseed_v1.json` is the versioned plan for the next accepted experiment.
-It is deliberately `planned`: no new result, test manifest, source tag, or W&B run is claimed yet.
-Its structure is defined by `experiment_protocols/protocol.schema.json`.
+`experiment_protocols/multiseed_v1.json` is the immutable pre-run snapshot for the accepted
+comparison. Its status is `frozen`, its `accepted_runs` array is empty by design, and its source
+tag is `protocol/multiseed-v1`. The release manifest
+`experiment_protocols/multiseed_v1_results.json` is the sanitized post-run evidence record; it does
+not edit the frozen protocol.
 
-## Freeze before execution
+The frozen snapshot leaves its optional `source.commit` field null because the protocol was sealed
+before the evidence run; the release resolves the immutable source tag to the full commit digest
+shown below. This keeps the pre-run protocol unchanged while making the post-run source binding
+explicit.
 
-Before the first training run:
+## Frozen evidence binding
 
-1. Record the source commit/tag and the SHA-256 of the tracked diff.
-2. Bind the dataset revision and ordered universe-manifest hash.
-3. Confirm whether at least ten trajectories exist that have not been inspected during model
-   development. If they do, hash that final-test manifest and do not open it until model families,
-   normalization, budgets, seeds, and checkpoints are fixed from validation.
-4. If fewer than ten unseen trajectories exist, use five-fold nested group cross-validation on the
-   available universe. Perform all model and checkpoint selection in each outer fold's inner
-   validation data and call the result retrospective cross-validation, never a locked test.
-5. Change `status` from `planned` to `frozen` in the same commit as the protocol values. Any later
-   scientific change requires a new protocol ID; do not edit the frozen record in place.
+The run and aggregate are bound to source commit
+`be976808582239da201896bd20ef95ff91d97128`, an empty tracked diff, the universe manifest digest
+`96c85a70119ca790ef46ba6ccbee1f75e2b37a400eed48b900194650ef35c68e`, and outer-fold manifest
+digest `da5d95b87985e5fb6c32c880d15627aa17eccd3d262c61f723d1044cef34ff87`. The data revision is
+`cyclone-consumed-bytes-sha256:ff2867e9eb8e9ed74dd1ed92d347b02a703368e634f86cce983c07b0754e3d7a`.
+The consumed universe has 51 trajectories and 1,173 sampled timestep bundles. The manifest-/byte-
+verification routine checked the enumerated consumed files in both the durable subset and the
+operational public-data alias; the package publishes the sanitized binding report without private
+paths in `experiment_protocols/multiseed_v1_dataset_binding.json`.
 
-The matched learned-model seeds are `52`, `53`, `54`, `55`, and `56`. The development split seed
-remains `52`; training-seed variation measures initialization and optimization variability without
-changing the development trajectories. Persistence is evaluated on every matching trajectory and
-horizon but has no training seed dependence.
+The stage ledger contains 255 slots: 230 accepted ledger slots (225 metric stages and five
+selection barriers) and 25 `skipped_unselected`. Each accepted metric row
+has a resolved configuration hash, training seed, fold manifest hash, and checkpoint/cache lineage.
+The five selection barriers use only validation data and all state `test_evidence_opened=false`.
+The model family is Transformer in folds 0, 1, and 3 and GRU in folds 2 and 4. Sequence checkpoint
+selection is by validation latent RMSE; family selection is by five-seed validation flux RMSE.
 
-## Accepted-run linkage
+## Analysis rule
 
-For every accepted stage, create a local record that supplies this chain:
+The primary estimand is the paired selected-model-minus-observed-persistence trajectory-balanced
+flux RMSE difference, weighted equally by outer fold, training seed, and trajectory. The secondary
+estimand is the corresponding latent-MSE difference against decoded latent persistence. The
+10,000-replicate hierarchical bootstrap seeds, scalar metrics, per-fold summaries, per-seed
+variability, and separate spectra metrics are all recorded in the aggregate and release manifests.
+The protocol requires the conclusion ``no convincing advantage'' whenever the primary interval
+contains zero; on this universe the strictly positive interval supports a clear negative result.
 
-```text
-protocol_id + source commit/tag + tracked-diff hash
-  -> dataset revision + universe/split manifest hashes
-  -> resolved-config hash + training seed
-  -> encoder/head/cache/checkpoint hashes
-  -> original W&B run ID or sanitized offline record
-  -> raw per-seed/per-trajectory metrics hash
-  -> table/figure source-data hash
-```
+During the final independent pass, one scalar validation metric differed from the mean of its JSON
+trajectory values by 1.62e-6 because the stage scalar was accumulated in JAX float32 and the
+recomputation used NumPy float64. The validator now has a narrow, tested float32-rounding tolerance
+(`rel_tol=1e-6`, `abs_tol=3e-6`); it rejects larger discrepancies. This is a post-run maintenance
+fix to the analysis checker, not a change to model code, configs, evidence values, selection, or
+the frozen source binding. The accepted aggregate remains explicitly tied to the frozen tag.
 
-The local record and W&B metadata must agree exactly. A path alone is not provenance because paths
-can be reused. Hash files or deterministic directory manifests; record the hashing method and sort
-directory entries before hashing. Keep credentials, usernames, private server paths, raw data,
-checkpoints, and latent caches out of the public bundle.
+## W&B and publication boundaries
 
-## Analysis and reporting decision rule
-
-Each sequence trainer selects its checkpoint by trajectory-balanced validation latent RMSE, the
-training objective available without reopening the test split. The learned model family is then
-selected within each outer fold by trajectory-balanced validation flux RMSE. The primary final
-estimand is the paired selected-model-minus-observed-diagnostic-persistence difference in
-per-trajectory flux RMSE, averaged over outer folds, training seeds, and trajectories. Compute a
-paired hierarchical bootstrap that
-resamples training seeds and trajectories; also report variability between seeds and the fraction
-of trajectories improved.
-
-The rollout `flux_rmse` field is the trajectory-balanced selection metric (mean per-trajectory
-RMSE); `headline_sqrt_mean_trajectory_mse`/`flux_rmse_pooled` retain the pooled square-root
-headline as a secondary diagnostic. Report `kyspec` and `fluxspec` separately.
-Decoded latent-state persistence is a secondary latent-dynamics reference; applying the diagnostic
-head to true future latents is an analysis control, not a forecast ceiling.
-If the primary interval contains zero, write that the study found no convincing advantage. A
-negative result is accepted protocol evidence; changing selection after seeing it is not.
-
-## Completion and release
-
-The protocol JSON is an immutable pre-run snapshot: it remains `frozen` with an empty
-`accepted_runs` array so its source hash and tag cannot change after test evidence is opened. After
-all accepted runs finish, publish the separate tracked `experiment_protocols/multiseed_v1_results.json`
-release manifest generated from the ignored aggregate output. It records accepted/skipped stage
-counts, hashes, fold-level summaries, and sanitized W&B status without trajectory rows, server paths,
-or credentials. The raw stage ledger and source tables remain locally available and are referenced by
-hash. Check W&B links while signed out; the canonical run uses W&B disabled and therefore has no live
-run IDs or URLs to cite.
+W&B is disabled and configuration-verified for all 225 accepted metric stages. Local `wandb_status.json`
+files are the source of truth and state `enabled=false`, `requested=false`, and `mode=disabled`.
+There are no live run IDs or URLs in the thesis. Raw trajectories, checkpoints, latent caches, and
+per-trajectory metric rows stay outside Git; the tracked release contains hashes and aggregate
+summaries only. A future scientific change must receive a new protocol ID, source binding, and
+dataset revision rather than modifying this record in place.
