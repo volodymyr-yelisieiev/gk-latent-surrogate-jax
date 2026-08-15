@@ -73,8 +73,9 @@ gks evaluate-rollout --config configs/experiment/smoke_evaluate_rollout.yaml
 gks-protocol --protocol experiment_protocols/multiseed_v1.json
 ```
 
-All commands support resolved configuration validation through `--dry-run`, targeted
-configuration overrides, deterministic seeds, and explicit output directories.
+Pipeline commands support resolved configuration validation through `--dry-run`, targeted
+configuration overrides, deterministic seeds, and explicit output directories. The fail-closed
+`gks-protocol` entrypoint performs the equivalent preflight before `--execute`.
 
 ## Reproducibility
 

@@ -118,7 +118,7 @@ def test_release_manifest_can_reproduce_explicit_postflight_metadata(
     assert provenance["source_commit_verified_against_HEAD"] is False
     assert provenance["source_commit_verified_at_release_generation"] is True
     assert provenance["postflight_maintenance_after_release"] is True
-    assert provenance["postflight_head_commit"] == head
+    assert provenance["postflight_generation_commit"] == head
 
 
 def test_release_manifest_schema_is_distinct_from_raw_result_schema() -> None:

@@ -118,7 +118,7 @@ def build_manifest(
         "server_paths_not_published": True,
     }
     if postflight_maintenance:
-        provenance["postflight_head_commit"] = head
+        provenance["postflight_generation_commit"] = head
     manifest = {
         "release_manifest_schema_version": "1.0.0",
         "status": "accepted",
