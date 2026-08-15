@@ -2,13 +2,13 @@
   "$schema": "./protocol.schema.json",
   "schema_version": "1.0.0",
   "protocol_id": "multiseed-v1",
-  "status": "planned",
+  "status": "frozen",
   "created_before_runs": true,
   "source": {
     "repository": "https://github.com/volodymyr-yelisieiev/gk-latent-surrogate-jax",
     "commit": null,
-    "tag": null,
-    "tracked_diff_sha256": null
+    "tag": "protocol/multiseed-v1",
+    "tracked_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
   },
   "data": {
     "dataset_revision": "cyclone-consumed-bytes-sha256:ff2867e9eb8e9ed74dd1ed92d347b02a703368e634f86cce983c07b0754e3d7a",
