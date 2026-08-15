@@ -193,10 +193,23 @@ def _aggregate_eval_metrics_by_trajectory(
     metric_names = set(per_trajectory[0])
     if any(set(metrics) != metric_names for metrics in per_trajectory[1:]):
         raise ValueError("validation trajectories produced inconsistent metric sets")
-    return {
+    result = {
         name: float(np.mean([metrics[name] for metrics in per_trajectory]))
         for name in sorted(metric_names)
     }
+    # Keep the protocol's selection estimands explicit.  Averaging per-
+    # trajectory losses and taking one square root is a different estimand from
+    # the mean of per-trajectory RMSE values; the latter is the declared
+    # trajectory-balanced metric used by the selection barrier.
+    if "flux_loss" in metric_names:
+        result["trajectory_balanced_flux_rmse"] = float(
+            np.mean([np.sqrt(max(metrics["flux_loss"], 0.0)) for metrics in per_trajectory])
+        )
+    if "latent_mse" in metric_names:
+        result["trajectory_balanced_latent_rmse"] = float(
+            np.mean([np.sqrt(max(metrics["latent_mse"], 0.0)) for metrics in per_trajectory])
+        )
+    return result
 
 
 def _scheduled_learning_rate(config: ExperimentConfig, completed_step: int) -> float:
@@ -986,9 +999,9 @@ def train_encoder(config: ExperimentConfig, *, dry_run: bool = False) -> dict[st
                 step_fn=eval_fn,
             )
             if config.data.target_flux and config.loss.flux_weight > 0.0:
-                primary_name = "flux_rmse"
-                primary_value = float(np.sqrt(max(latest_validation["flux_loss"], 0.0)))
-                latest_validation[primary_name] = primary_value
+                primary_name = "trajectory_balanced_flux_rmse"
+                primary_value = latest_validation[primary_name]
+                latest_validation["flux_rmse"] = primary_value
             else:
                 primary_name = "loss"
                 primary_value = latest_validation[primary_name]
@@ -1013,7 +1026,9 @@ def train_encoder(config: ExperimentConfig, *, dry_run: bool = False) -> dict[st
         "checkpoint": str(ckpt),
         "checkpoint_step": best_step,
         "checkpoint_sha256": _sha256_file(_checkpoint_pickle(ckpt)),
-        "checkpoint_selection": "minimum_validation_flux_rmse" if validation_ids and config.data.target_flux else (
+        "checkpoint_selection": "minimum_validation_trajectory_balanced_flux_rmse"
+        if validation_ids and config.data.target_flux
+        else (
             "minimum_validation_loss" if validation_ids else "final_step_no_validation_split"
         ),
         "best_validation_metric": None if not np.isfinite(best_metric) else best_metric,
@@ -1143,9 +1158,15 @@ def train_direct_diagnostics(config: ExperimentConfig, *, dry_run: bool = False)
                 step_fn=_eval_direct_diagnostic_step,
             )
             if "flux_mse" in validation_metrics:
-                validation_metrics["flux_rmse"] = float(np.sqrt(max(validation_metrics["flux_mse"], 0.0)))
-                selection_value = validation_metrics["flux_rmse"]
-                selection_name = "validation_flux_rmse"
+                validation_metrics["trajectory_balanced_flux_rmse"] = float(
+                    validation_metrics.get(
+                        "trajectory_balanced_flux_rmse",
+                        np.sqrt(max(validation_metrics["flux_mse"], 0.0)),
+                    )
+                )
+                validation_metrics["flux_rmse"] = validation_metrics["trajectory_balanced_flux_rmse"]
+                selection_value = validation_metrics["trajectory_balanced_flux_rmse"]
+                selection_name = "validation_trajectory_balanced_flux_rmse"
             else:
                 selection_value = validation_metrics["diagnostics"]
                 selection_name = "validation_diagnostic_loss"
@@ -1368,6 +1389,15 @@ def embed_dataset(config: ExperimentConfig, *, dry_run: bool = False) -> dict[st
     out = _output_dir(config)
     write_run_metadata(out, config=config.model_dump(mode="json"))
     (out / "config_resolved.yaml").write_text(config_to_yaml(config), encoding="utf-8")
+    write_json(
+        out / "wandb_status.json",
+        {
+            "enabled": False,
+            "requested": False,
+            "mode": "disabled",
+            "provenance": "embed-dataset does not initialize a W&B logger; resolved config disables W&B",
+        },
+    )
     model, params, encoder_checkpoint = _encoder_params_for_embedding(
         config, expected_universe_ids=trajectory_ids
     )
@@ -1436,7 +1466,9 @@ def embed_dataset(config: ExperimentConfig, *, dry_run: bool = False) -> dict[st
     summary = {
         "artifact_role": "latent_cache",
         "latent_cache": str(cache_path),
+        "latent_cache_sha256": _sha256_file(cache_path),
         "encoder_checkpoint": encoder_checkpoint_path,
+        "encoder_checkpoint_sha256": _sha256_file(_checkpoint_pickle(encoder_checkpoint)),
         "trajectories": len(trajectory_ids),
         "embedding_batch_size": config.data.batch_size,
         **_protocol_fields(
@@ -1696,17 +1728,19 @@ def _diagnostic_reference_error_summary(
     mse_by_step = jnp.mean(mse_by_trajectory, axis=0)
     mae_by_step = jnp.mean(mae_by_trajectory, axis=0)
     relative_l2_by_step = jnp.mean(relative_l2_by_trajectory, axis=0)
+    rmse_by_trajectory = jnp.sqrt(jnp.mean(mse_by_trajectory, axis=1))
+    pooled_rmse = jnp.sqrt(jnp.mean(mse_by_step))
     return {
         f"{prefix}_mse_by_step": np.asarray(jax.device_get(mse_by_step)),
         f"{prefix}_mse_std_by_step": np.asarray(jax.device_get(jnp.std(mse_by_trajectory, axis=0))),
         f"{prefix}_rmse_by_step": np.asarray(jax.device_get(jnp.sqrt(mse_by_step))),
-        f"{prefix}_rmse_by_trajectory": np.asarray(
-            jax.device_get(jnp.sqrt(jnp.mean(mse_by_trajectory, axis=1)))
-        ),
+        f"{prefix}_rmse_by_trajectory": np.asarray(jax.device_get(rmse_by_trajectory)),
+        f"{prefix}_trajectory_balanced_rmse": np.asarray(jax.device_get(jnp.mean(rmse_by_trajectory))),
         f"{prefix}_mae_by_step": np.asarray(jax.device_get(mae_by_step)),
         f"{prefix}_relative_l2_by_step": np.asarray(jax.device_get(relative_l2_by_step)),
         f"{prefix}_mse": np.asarray(jax.device_get(jnp.mean(mse_by_step))),
-        f"{prefix}_rmse": np.asarray(jax.device_get(jnp.sqrt(jnp.mean(mse_by_step)))),
+        f"{prefix}_rmse": np.asarray(jax.device_get(jnp.mean(rmse_by_trajectory))),
+        f"{prefix}_rmse_pooled": np.asarray(jax.device_get(pooled_rmse)),
         f"{prefix}_mae": np.asarray(jax.device_get(jnp.mean(mae_by_step))),
         f"{prefix}_relative_l2": np.asarray(jax.device_get(jnp.mean(relative_l2_by_step))),
     }
@@ -1898,8 +1932,9 @@ def train_sequence(config: ExperimentConfig, *, dry_run: bool = False) -> dict[s
                 plan=plan,
                 step_fn=eval_fn,
             )
-            latest_validation["latent_rmse"] = float(
-                np.sqrt(max(latest_validation["latent_mse"], 0.0))
+            latest_validation["latent_rmse_pooled"] = float(np.sqrt(max(latest_validation["latent_mse"], 0.0)))
+            latest_validation["latent_rmse"] = latest_validation.get(
+                "trajectory_balanced_latent_rmse", latest_validation["latent_rmse_pooled"]
             )
             logger.log({"step": step_value, **latest_validation}, prefix="validation")
             if latest_validation["latent_rmse"] < best_metric:
@@ -1921,7 +1956,9 @@ def train_sequence(config: ExperimentConfig, *, dry_run: bool = False) -> dict[s
         "checkpoint_step": best_step,
         "checkpoint_sha256": _sha256_file(_checkpoint_pickle(ckpt)),
         "checkpoint_selection": (
-            "minimum_validation_latent_rmse" if validation_ids else "final_step_no_validation_split"
+            "minimum_validation_trajectory_balanced_latent_rmse"
+            if validation_ids
+            else "final_step_no_validation_split"
         ),
         "best_validation_metric": None if not np.isfinite(best_metric) else best_metric,
         "latent_cache": str(cache_path),
@@ -2202,6 +2239,9 @@ def evaluate_rollout(config: ExperimentConfig, *, dry_run: bool = False) -> dict
                 eps=config.loss.spectra_epsilon,
             )
         )
+        summary["observed_diagnostic_persistence_flux_trajectory_ids"] = np.asarray(
+            tuple(dict.fromkeys(rollout_trajectory_ids)), dtype=str
+        )
         diagnostic_samples["observed_diagnostic_persistence_flux_pred"] = np.asarray(
             jax.device_get(observed_flux_pred[:sample_windows]), dtype=np.float32
         )
@@ -2278,7 +2318,17 @@ def evaluate_rollout(config: ExperimentConfig, *, dry_run: bool = False) -> dict
                 jax.device_get(jnp.std(flux_relative_error_by_trajectory, axis=0))
             )
             summary["flux_mse"] = np.asarray(jax.device_get(flux_mse_value))
-            summary["flux_rmse"] = np.asarray(jax.device_get(jnp.sqrt(flux_mse_value)))
+            pooled_flux_rmse = jnp.sqrt(flux_mse_value)
+            trajectory_balanced_flux_rmse = jnp.mean(flux_rmse_by_trajectory)
+            summary["headline_sqrt_mean_trajectory_mse"] = np.asarray(jax.device_get(pooled_flux_rmse))
+            summary["flux_rmse_pooled"] = np.asarray(jax.device_get(pooled_flux_rmse))
+            summary["trajectory_balanced_flux_rmse"] = np.asarray(
+                jax.device_get(trajectory_balanced_flux_rmse)
+            )
+            # ``flux_rmse`` is the protocol selection metric.  Keep the pooled
+            # scalar under an explicit name so it cannot be mistaken for the
+            # declared trajectory-balanced estimand.
+            summary["flux_rmse"] = np.asarray(jax.device_get(trajectory_balanced_flux_rmse))
             summary["flux_mae"] = np.asarray(jax.device_get(jnp.mean(flux_mae_by_step)))
             summary["flux_relative_error"] = np.asarray(jax.device_get(jnp.mean(flux_relative_error_by_step)))
             summary["flux_time_average_error"] = np.asarray(jax.device_get(jnp.mean(flux_time_average_by_trajectory)))
@@ -2343,6 +2393,18 @@ def evaluate_rollout(config: ExperimentConfig, *, dry_run: bool = False) -> dict
                 relative_l2_by_step = jnp.mean(relative_l2_by_trajectory, axis=0)
                 shape_corr_by_step = jnp.mean(shape_corr_by_trajectory, axis=0)
                 summary[f"spectra_{key}_mse_by_step"] = np.asarray(jax.device_get(by_step))
+                summary[f"spectra_{key}_mse_by_trajectory"] = np.asarray(
+                    jax.device_get(jnp.mean(by_trajectory, axis=1))
+                )
+                summary[f"spectra_{key}_relative_l2_by_trajectory"] = np.asarray(
+                    jax.device_get(jnp.mean(relative_l2_by_trajectory, axis=1))
+                )
+                summary[f"spectra_{key}_shape_corr_by_trajectory"] = np.asarray(
+                    jax.device_get(jnp.mean(shape_corr_by_trajectory, axis=1))
+                )
+                summary[f"spectra_{key}_trajectory_ids"] = np.asarray(
+                    tuple(dict.fromkeys(rollout_trajectory_ids)), dtype=str
+                )
                 summary[f"spectra_{key}_mse_std_by_step"] = np.asarray(jax.device_get(jnp.std(by_trajectory, axis=0)))
                 summary[f"spectra_{key}_mse"] = np.asarray(jax.device_get(jnp.mean(by_step)))
                 summary[f"spectra_{key}_log_mse_by_step"] = np.asarray(jax.device_get(log_by_step))
@@ -2419,21 +2481,40 @@ def evaluate_rollout(config: ExperimentConfig, *, dry_run: bool = False) -> dict
     summary["flux_metrics_computed"] = np.asarray(flux_metrics_computed)
     summary["spectra_metrics_computed"] = np.asarray(spectra_metrics_computed)
     summary["diagnostic_warnings"] = np.asarray(tuple(dict.fromkeys(diagnostic_warnings)), dtype=str)
+    # Keep the baseline contract explicit in every rollout artifact.  The
+    # protocol runner uses this field to distinguish observed diagnostic
+    # persistence from decoded latent persistence and learned forecasts.
+    summary["baseline_mode"] = baseline_mode
     summary["configured_trajectory_ids"] = np.asarray(configured_ids, dtype=str)
     summary["selected_trajectory_ids"] = np.asarray(selected_ids, dtype=str)
     summary["num_configured_trajectories"] = np.asarray(len(configured_ids), dtype=np.int32)
     summary["num_selected_trajectories"] = np.asarray(len(selected_ids), dtype=np.int32)
     summary["num_rollout_windows"] = np.asarray(len(preds), dtype=np.int32)
     summary["latent_cache"] = str(cache_path)
+    summary["latent_cache_sha256"] = _sha256_file(cache_path)
     summary["encoder_checkpoint"] = _relative_artifact_path(encoder_checkpoint)
+    summary["encoder_checkpoint_sha256"] = _sha256_file(_checkpoint_pickle(encoder_checkpoint))
     if use_observed_persistence:
+        # The observed diagnostic baseline has no latent rollout metrics, but
+        # it still needs a finite/stable evidence flag for the protocol gate.
+        finite_arrays = [
+            np.asarray(value)
+            for key, value in summary.items()
+            if key.startswith("observed_diagnostic_persistence_")
+            and isinstance(value, np.ndarray)
+            and np.issubdtype(np.asarray(value).dtype, np.number)
+        ]
         for suffix in (
+            "mse_by_trajectory",
             "mse_by_step",
             "mse_std_by_step",
+            "mae_by_trajectory",
             "mae_by_step",
             "mae_std_by_step",
+            "relative_l2_by_trajectory",
             "relative_l2_by_step",
             "relative_l2_std_by_step",
+            "cosine_by_trajectory",
             "cosine_by_step",
             "cosine_std_by_step",
             "mse",
@@ -2446,10 +2527,15 @@ def evaluate_rollout(config: ExperimentConfig, *, dry_run: bool = False) -> dict
         for key in tuple(summary):
             if key.startswith(("flux_", "spectra_")):
                 summary.pop(key)
+        for key in ("headline_sqrt_mean_trajectory_mse", "trajectory_balanced_flux_rmse"):
+            summary.pop(key, None)
         observed_flux_prefix = "observed_diagnostic_persistence_flux_"
         for key, value in tuple(summary.items()):
             if key.startswith(observed_flux_prefix):
                 summary[key.removeprefix("observed_diagnostic_persistence_")] = value
+        if "flux_trajectory_balanced_rmse" in summary:
+            summary["trajectory_balanced_flux_rmse"] = summary["flux_trajectory_balanced_rmse"]
+        summary["stable"] = bool(finite_arrays and all(np.isfinite(value).all() for value in finite_arrays))
         diagnostic_samples.pop("flux_pred", None)
         for key in tuple(diagnostic_samples):
             if key.endswith("_pred") and not key.startswith(
@@ -2468,6 +2554,11 @@ def evaluate_rollout(config: ExperimentConfig, *, dry_run: bool = False) -> dict
     summary["sequence_checkpoint"] = (
         config.latent_cache.sequence_checkpoint_path or baseline_mode
     )
+    summary["sequence_checkpoint_sha256"] = (
+        _sha256_file(_checkpoint_pickle(config.latent_cache.sequence_checkpoint_path))
+        if baseline_mode == "none" and config.latent_cache.sequence_checkpoint_path
+        else None
+    )
     summary["rollout_horizon"] = np.asarray(config.evaluation.rollout_steps, dtype=np.int32)
     summary.update(
         _protocol_fields(
@@ -2477,6 +2568,7 @@ def evaluate_rollout(config: ExperimentConfig, *, dry_run: bool = False) -> dict
             universe_trajectory_ids=tuple(cache.trajectory_ids()),
         )
     )
+    summary["latent_trajectory_ids"] = np.asarray(tuple(dict.fromkeys(rollout_trajectory_ids)), dtype=str)
     out = _output_dir(config)
     write_run_metadata(out, config=config.model_dump(mode="json"))
     (out / "config_resolved.yaml").write_text(config_to_yaml(config), encoding="utf-8")

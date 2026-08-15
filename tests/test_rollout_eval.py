@@ -6,6 +6,7 @@ import pickle
 from pathlib import Path
 
 import numpy as np
+import pytest
 import yaml
 
 from gk_surrogate import pipeline as pipeline_module
@@ -169,6 +170,8 @@ def test_rollout_eval_outputs_metrics_json_csv_and_plot(repo_root, tmp_path):
     assert Path(result["metrics_by_step_csv"]).exists()
     assert Path(result["diagnostic_samples_npz"]).exists()
     assert len(result["mse_by_step"]) == 4
+    assert len(result["mse_by_trajectory"]) == result["num_trajectories"]
+    assert list(result["latent_trajectory_ids"]) == list(result["selected_trajectory_ids"])
     assert len(result["mse_std_by_step"]) == 4
     assert len(result["relative_l2_by_step"]) == 4
     assert result["num_trajectories"] == 1
@@ -190,11 +193,18 @@ def test_rollout_eval_outputs_metrics_json_csv_and_plot(repo_root, tmp_path):
     assert "flux_mse_by_step" in result
     assert "flux_mse_std_by_step" in result
     assert "flux_rmse" in result
+    assert result["trajectory_balanced_flux_rmse"] == pytest.approx(
+        float(np.mean(result["flux_rmse_by_trajectory"]))
+    )
+    assert math.isfinite(float(result["flux_rmse_pooled"]))
     assert "flux_mae" in result
     assert "flux_relative_error" in result
     assert "flux_time_average_error" in result
     assert result["rollout_method"] == "latent_state_persistence_decoded"
+    assert result["baseline_mode"] == "latent_state_persistence_decoded"
     assert result["sequence_checkpoint"] == "latent_state_persistence_decoded"
+    assert len(result["latent_cache_sha256"]) == 64
+    assert len(result["encoder_checkpoint_sha256"]) == 64
     assert "observed_diagnostic_persistence_flux_rmse" in result
     assert "observed_diagnostic_persistence_flux_rmse_by_trajectory" in result
     assert "diagnostic_head_oracle_flux_rmse" in result
@@ -339,7 +349,10 @@ def test_rollout_eval_uses_cache_lineage_without_configured_checkpoint(repo_root
     )
     observed = evaluate_rollout(observed_config)
     assert observed["rollout_method"] == "observed_diagnostic_persistence"
+    assert observed["baseline_mode"] == "observed_diagnostic_persistence"
     assert observed["sequence_checkpoint"] == "observed_diagnostic_persistence"
+    assert observed["stable"] is True
+    assert list(observed["flux_trajectory_ids"]) == list(observed["selected_trajectory_ids"])
     assert observed["flux_metrics_computed"] is False
     assert observed["spectra_metrics_computed"] is False
     assert observed["diagnostic_warnings"] == []

@@ -116,7 +116,11 @@ def _write_success_evidence(command: list[str], output: Path) -> None:
     elif cli_command == "embed-dataset":
         cache = output / "latent_cache.h5"
         cache.write_bytes(b"cache")
-        payload.update(latent_cache=str(cache), artifact_role="latent_cache")
+        payload.update(
+            latent_cache=str(cache),
+            latent_cache_sha256=hashlib.sha256(cache.read_bytes()).hexdigest(),
+            artifact_role="latent_cache",
+        )
     else:
         baseline_mode = (
             "observed_diagnostic_persistence"
@@ -127,6 +131,7 @@ def _write_success_evidence(command: list[str], output: Path) -> None:
         )
         payload.update(
             flux_rmse=1.0 if "gru" in output.name else 2.0,
+            trajectory_balanced_flux_rmse=1.0 if "gru" in output.name else 2.0,
             stable=True,
             num_trajectories=len(selected_ids),
             baseline_mode=baseline_mode,

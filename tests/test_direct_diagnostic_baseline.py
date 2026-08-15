@@ -120,7 +120,7 @@ def test_direct_diagnostic_pipeline_trains_and_reports_held_out_validation(repo_
     assert result["artifact_role"] == "direct_diagnostic_checkpoint"
     assert result["test_split_inspected"] is False
     assert set(result["train_trajectory_ids"]).isdisjoint(result["validation_trajectory_ids"])
-    assert result["checkpoint_selection"] == "validation_flux_rmse"
+    assert result["checkpoint_selection"] == "validation_trajectory_balanced_flux_rmse"
     assert result["validation"]["flux_rmse"] >= 0.0
     assert (tmp_path / "direct" / "metrics.json").is_file()
     assert (tmp_path / "direct" / "normalization_stats.npz").is_file()

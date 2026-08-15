@@ -63,6 +63,10 @@ class MetricsLogger:
         self._wandb_log_artifacts = False
         self._wandb_run_name: str | None = None
         self._wandb_status = self._init_wandb(wandb_config or {}, run_config=run_config)
+        # Keep a durable, sanitized record even when W&B is deliberately
+        # disabled. This prevents a missing file from being mistaken for a
+        # missing provenance decision in multi-stage experiments.
+        write_json(self.output_dir / "wandb_status.json", self._wandb_status)
 
     def log(self, metrics: Mapping[str, Any], *, prefix: str | None = None) -> None:
         flat = _flatten_mapping(metrics)

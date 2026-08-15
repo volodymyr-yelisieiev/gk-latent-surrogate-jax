@@ -121,7 +121,7 @@
       "properties": {
         "split": {"const": "validation"},
         "primary_metric": {"const": "trajectory_balanced_flux_rmse"},
-        "checkpoint_rule": {"const": "lowest_validation_latent_rmse"},
+        "checkpoint_rule": {"const": "lowest_validation_trajectory_balanced_latent_rmse"},
         "architecture_rule": {
           "const": "within_each_outer_fold_lowest_mean_inner_validation_primary_metric_over_all_matched_training_seeds"
         },

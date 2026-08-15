@@ -23,18 +23,23 @@ reducing over batch and feature dimensions for that step. This reduction is part
 artifact contract and must remain stable when comparing runs.
 
 `gks evaluate-flux-head` fits a frozen-latent ridge head on train trajectories and reports
-flux RMSE on the requested split. For model validation, use the validation split and treat
-`flux_rmse` as the primary number; latent MSE is a secondary training diagnostic.
+flux RMSE on the requested split. For nested-CV model selection, use the validation split and
+treat `trajectory_balanced_flux_rmse` (the arithmetic mean of per-trajectory RMSE values) as the
+primary number. The `flux_rmse` field is an exact alias for that selection metric in rollout
+evidence; the pooled square-root-of-mean-MSE scalar is retained as
+`headline_sqrt_mean_trajectory_mse`/`flux_rmse_pooled`. Latent MSE is a secondary training
+diagnostic.
 
-For trajectory-balanced rollout evaluation, the headline flux RMSE is
+For trajectory-balanced rollout evaluation, the declared selection flux RMSE is
 
 ```text
-sqrt(mean over trajectories and horizons of per-trajectory flux MSE)
+mean over trajectories of sqrt(mean over horizons and features of per-trajectory flux MSE)
 ```
 
-It is not the arithmetic mean of `flux_rmse_by_trajectory`. Paired analyses operate on the
-per-trajectory RMSE values and therefore answer a different estimand. Report both when using
-paired uncertainty. The current Cyclone artifacts do not establish a physical flux unit, so
+The pooled square-root-of-mean-MSE scalar is reported separately and is not used for architecture
+selection. Paired analyses operate on the per-trajectory RMSE values and therefore match the
+selection estimand. Report both when using paired uncertainty. The current Cyclone artifacts do
+not establish a physical flux unit, so
 their flux errors must be labelled `preprocessed target units` unless the data owner supplies
 and verifies a physical unit.
 

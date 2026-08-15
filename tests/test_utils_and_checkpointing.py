@@ -118,7 +118,11 @@ def test_metrics_logger_disabled_wandb_does_not_import(tmp_path, monkeypatch):
     logger.log({"step": 1, "loss": 1.0}, prefix="train")
     logger.write_summary({"loss": 1.0})
     assert logger.wandb_status() == {"enabled": False, "requested": False, "mode": "disabled"}
-    assert not (tmp_path / "disabled" / "wandb_status.json").exists()
+    assert json.loads((tmp_path / "disabled" / "wandb_status.json").read_text(encoding="utf-8")) == {
+        "enabled": False,
+        "mode": "disabled",
+        "requested": False,
+    }
 
 
 def test_metrics_logger_uses_optional_wandb_when_enabled(tmp_path, monkeypatch):

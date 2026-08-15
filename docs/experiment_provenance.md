@@ -54,8 +54,9 @@ paired hierarchical bootstrap that
 resamples training seeds and trajectories; also report variability between seeds and the fraction
 of trajectories improved.
 
-The existing scalar `flux_rmse` remains a secondary headline for continuity. It is the square root
-of mean trajectory MSE, not mean per-trajectory RMSE. Report `kyspec` and `fluxspec` separately.
+The rollout `flux_rmse` field is the trajectory-balanced selection metric (mean per-trajectory
+RMSE); `headline_sqrt_mean_trajectory_mse`/`flux_rmse_pooled` retain the pooled square-root
+headline as a secondary diagnostic. Report `kyspec` and `fluxspec` separately.
 Decoded latent-state persistence is a secondary latent-dynamics reference; applying the diagnostic
 head to true future latents is an analysis control, not a forecast ceiling.
 If the primary interval contains zero, write that the study found no convincing advantage. A
@@ -63,8 +64,11 @@ negative result is accepted protocol evidence; changing selection after seeing i
 
 ## Completion and release
 
-After all accepted runs finish, populate `accepted_runs`, change status to `completed`, and publish
-one release bundle containing the frozen protocol, accepted-run manifest, resolved configs,
-environment metadata, hashes, raw metric tables, and figure-source tables. Check W&B links while
-signed out. If public W&B access is not allowed, use sanitized records in the release and state that
-limitation in the thesis.
+The protocol JSON is an immutable pre-run snapshot: it remains `frozen` with an empty
+`accepted_runs` array so its source hash and tag cannot change after test evidence is opened. After
+all accepted runs finish, publish the separate tracked `experiment_protocols/multiseed_v1_results.json`
+release manifest generated from the ignored aggregate output. It records accepted/skipped stage
+counts, hashes, fold-level summaries, and sanitized W&B status without trajectory rows, server paths,
+or credentials. The raw stage ledger and source tables remain locally available and are referenced by
+hash. Check W&B links while signed out; the canonical run uses W&B disabled and therefore has no live
+run IDs or URLs to cite.

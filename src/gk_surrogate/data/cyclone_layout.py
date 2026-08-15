@@ -121,9 +121,18 @@ def _trajectory_candidates(root: Path) -> tuple[Path, ...]:
         return (root,)
     direct = [path for path in root.iterdir() if path.is_dir() and _has_timestep_files(path)]
     if direct:
-        return tuple(sorted(direct))
+        return tuple(sorted(direct, key=_manifest_order_key))
     nested = [path for path in root.glob("*/*") if path.is_dir() and _has_timestep_files(path)]
-    return tuple(sorted(nested))
+    return tuple(sorted(nested, key=_manifest_order_key))
+
+
+def _manifest_order_key(path: Path) -> tuple[str, str]:
+    name = path.name
+    for suffix in ("_ifft_realpotens", "_ifft"):
+        if name.endswith(suffix):
+            name = name[: -len(suffix)]
+            break
+    return name, path.name
 
 
 def _has_timestep_files(path: Path) -> bool:

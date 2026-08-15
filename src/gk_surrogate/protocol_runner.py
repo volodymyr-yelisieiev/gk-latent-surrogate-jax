@@ -265,7 +265,7 @@ def _validate_protocol(payload: Mapping[str, Any], report: PreflightReport, *, r
     if not isinstance(selection, Mapping) or selection.get("test_used_for_selection") is not False:
         report.blockers.append("protocol must prohibit test use for model selection")
     elif (
-        selection.get("checkpoint_rule") != "lowest_validation_latent_rmse"
+        selection.get("checkpoint_rule") != "lowest_validation_trajectory_balanced_latent_rmse"
         or selection.get("primary_metric") != "trajectory_balanced_flux_rmse"
         or selection.get("architecture_rule")
         != "within_each_outer_fold_lowest_mean_inner_validation_primary_metric_over_all_matched_training_seeds"
@@ -1077,6 +1077,9 @@ def _load_stage_evidence(stage: Stage) -> dict[str, str] | None:
         "metrics": str(metrics_path),
         "metrics_sha256": _sha256(metrics_path),
     }
+    wandb_status_path = stage.output_dir / "wandb_status.json"
+    if wandb_status_path.is_file():
+        evidence["wandb_status_sha256"] = _sha256(wandb_status_path)
     expected_artifact_role = {
         "encoder": "encoder_checkpoint",
         "embed": "latent_cache",
@@ -1099,13 +1102,73 @@ def _load_stage_evidence(stage: Stage) -> dict[str, str] | None:
     if stage.name == "embed" and "latent_cache" not in evidence:
         return None
     if "latent_cache" in evidence:
-        evidence["latent_cache_sha256"] = _sha256(Path(evidence["latent_cache"]))
+        actual_cache_sha256 = _sha256(Path(evidence["latent_cache"]))
+        declared_cache_sha256 = payload.get("latent_cache_sha256")
+        if (
+            not isinstance(declared_cache_sha256, str)
+            or not re.fullmatch(r"[0-9a-f]{64}", declared_cache_sha256)
+            or declared_cache_sha256 != actual_cache_sha256
+        ):
+            return None
+        evidence["latent_cache_sha256"] = actual_cache_sha256
+    for artifact_key in ("encoder_checkpoint", "sequence_checkpoint"):
+        raw = payload.get(artifact_key)
+        if not isinstance(raw, str) or not raw:
+            continue
+        artifact_path = Path(raw)
+        if not artifact_path.exists():
+            continue
+        declared_hash = payload.get(f"{artifact_key}_sha256")
+        if artifact_key == "sequence_checkpoint" and payload.get("rollout_method") != "learned_sequence_model":
+            continue
+        checkpoint_file = _checkpoint_file(artifact_path)
+        if not checkpoint_file.is_file():
+            return None
+        actual_hash = _sha256(checkpoint_file)
+        if (
+            not isinstance(declared_hash, str)
+            or not re.fullmatch(r"[0-9a-f]{64}", declared_hash)
+            or declared_hash != actual_hash
+        ):
+            return None
     if stage.phase in {"validation", "test"}:
+        if "latent_cache" in payload:
+            cache_path = payload.get("latent_cache")
+            if not isinstance(cache_path, str) or not cache_path or not Path(cache_path).is_file():
+                return None
+            if "latent_cache_sha256" not in evidence:
+                return None
+            encoder_path = payload.get("encoder_checkpoint")
+            encoder_hash = payload.get("encoder_checkpoint_sha256")
+            if (
+                not isinstance(encoder_path, str)
+                or not encoder_path
+                or not Path(encoder_path).exists()
+                or not isinstance(encoder_hash, str)
+                or not re.fullmatch(r"[0-9a-f]{64}", encoder_hash)
+                or not _checkpoint_file(Path(encoder_path)).is_file()
+                or _sha256(_checkpoint_file(Path(encoder_path))) != encoder_hash
+            ):
+                return None
+            if payload.get("rollout_method") == "learned_sequence_model":
+                sequence_path = payload.get("sequence_checkpoint")
+                sequence_hash = payload.get("sequence_checkpoint_sha256")
+                if (
+                    not isinstance(sequence_path, str)
+                    or not Path(sequence_path).exists()
+                    or not isinstance(sequence_hash, str)
+                    or not re.fullmatch(r"[0-9a-f]{64}", sequence_hash)
+                    or not _checkpoint_file(Path(sequence_path)).is_file()
+                    or _sha256(_checkpoint_file(Path(sequence_path))) != sequence_hash
+                ):
+                    return None
         expected_baseline_mode = {
             "latent_persistence_eval": "latent_state_persistence_decoded",
             "observed_persistence_eval": "observed_diagnostic_persistence",
         }.get(stage.name, "none")
         flux_rmse = payload.get("flux_rmse")
+        trajectory_balanced_flux_rmse = payload.get("trajectory_balanced_flux_rmse")
+        require_trajectory_balanced = stage.phase == "validation" and stage.family in {"gru", "transformer"}
         if (
             not isinstance(flux_rmse, int | float)
             or isinstance(flux_rmse, bool)
@@ -1115,9 +1178,27 @@ def _load_stage_evidence(stage: Stage) -> dict[str, str] | None:
             or not isinstance(payload.get("num_trajectories"), int)
             or payload["num_trajectories"] != len(selected_ids)
             or payload.get("baseline_mode") != expected_baseline_mode
+            or (
+                require_trajectory_balanced
+                and (
+                    not isinstance(trajectory_balanced_flux_rmse, int | float)
+                    or isinstance(trajectory_balanced_flux_rmse, bool)
+                    or not math.isfinite(float(trajectory_balanced_flux_rmse))
+                    or not math.isclose(
+                        float(trajectory_balanced_flux_rmse),
+                        float(flux_rmse),
+                        rel_tol=1e-7,
+                        abs_tol=1e-7,
+                    )
+                )
+            )
         ):
             return None
         evidence["flux_rmse"] = repr(float(flux_rmse))
+        if isinstance(trajectory_balanced_flux_rmse, int | float) and not isinstance(
+            trajectory_balanced_flux_rmse, bool
+        ):
+            evidence["trajectory_balanced_flux_rmse"] = repr(float(trajectory_balanced_flux_rmse))
     return evidence
 
 
@@ -1134,12 +1215,16 @@ def _select_architecture(
         evidence_name = f"{family}_validation"
         for seed in seeds:
             evidence = by_fold_seed.get((stage.outer_fold, seed), {}).get(evidence_name)
-            if evidence is None or "flux_rmse" not in evidence or "metrics_sha256" not in evidence:
+            if (
+                evidence is None
+                or "trajectory_balanced_flux_rmse" not in evidence
+                or "metrics_sha256" not in evidence
+            ):
                 raise RuntimeError(
                     f"selection barrier lacks verified {family} validation evidence for "
                     f"outer fold {stage.outer_fold}, seed {seed}"
                 )
-            values.append(float(evidence["flux_rmse"]))
+            values.append(float(evidence["trajectory_balanced_flux_rmse"]))
             hashes[str(seed)] = evidence["metrics_sha256"]
         means[family] = float(sum(values) / len(values))
         metric_hashes[family] = hashes
@@ -1150,7 +1235,7 @@ def _select_architecture(
         "selection_split": "val",
         "primary_metric": "trajectory_balanced_flux_rmse",
         "matched_training_seeds": list(seeds),
-        "candidate_mean_validation_flux_rmse": means,
+        "candidate_mean_validation_trajectory_balanced_flux_rmse": means,
         "candidate_validation_metrics_sha256": metric_hashes,
         "tie_break_rule": "lexicographic_family_name",
         "selected_family": selected,

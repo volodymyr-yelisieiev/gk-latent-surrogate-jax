@@ -40,6 +40,7 @@ optional = [
 [project.scripts]
 gks = "gk_surrogate.cli:main"
 gks-protocol = "gk_surrogate.protocol_runner:main"
+gks-aggregate = "gk_surrogate.multiseed_aggregate:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/gk_surrogate"]
@@ -61,6 +62,9 @@ testpaths = ["tests"]
 markers = [
   "slow: marks tests as slow",
 ]
+
+[tool.coverage.run]
+omit = ["tests/*"]
 
 [tool.ruff]
 line-length = 120

@@ -179,6 +179,7 @@ def trajectory_balanced_rollout_metrics(
     result: dict[str, Array] = {}
     for key in ("mse", "mae", "relative_l2", "cosine"):
         values = jnp.stack([metrics[f"{key}_by_step"] for metrics in per_trajectory])
+        result[f"{key}_by_trajectory"] = jnp.mean(values, axis=1)
         result[f"{key}_by_step"] = jnp.mean(values, axis=0)
         result[f"{key}_std_by_step"] = jnp.std(values, axis=0)
         result[key] = jnp.mean(result[f"{key}_by_step"])
