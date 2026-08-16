@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from gk_surrogate.config.load import config_to_yaml, load_config
+from gk_surrogate.config.load import _expand_env_vars, config_to_yaml, load_config
 from gk_surrogate.config.schema import (
     DataConfig,
     DiagnosticHeadConfig,
@@ -11,6 +11,7 @@ from gk_surrogate.config.schema import (
     NormalizationConfig,
     WandbConfig,
 )
+from gk_surrogate.data.h5_schema import H5SchemaConfig as H5SchemaAlias
 
 
 def test_valid_config_loads_and_roundtrips(tiny_config_path):
@@ -69,6 +70,21 @@ def test_invalid_backend_and_missing_h5_schema_rejected():
                 },
             }
         )
+    with pytest.raises(ValueError, match="non-empty"):
+        DataConfig.model_validate(
+            {
+                "backend": "synthetic",
+                "target_spectra": [""],
+                "synthetic": {
+                    "num_trajectories": 1,
+                    "timesteps": 1,
+                    "channels": 1,
+                    "spatial_shape": [1, 1, 1, 1, 1],
+                    "flux_dim": 1,
+                },
+            }
+        )
+    assert H5SchemaAlias(dtype="float32").dtype == "float32"
 
 
 def test_cli_override_changes_resolved_config(tiny_config_path):
@@ -158,6 +174,10 @@ def test_command_specific_validation(tiny_config_path):
             overrides=["loss.simsiam_weight=1.0"],
             command="train-encoder",
         )
+    with pytest.raises(ValueError, match="requires data.split='train'"):
+        load_config(tiny_config_path, overrides=["data.split=val"], command="train-encoder")
+    with pytest.raises(ValueError, match="requires data.split='all'"):
+        load_config(tiny_config_path, command="embed-dataset")
 
 
 def test_env_expansion_and_flux_target_validation(repo_root, tiny_config_path, tmp_path, monkeypatch):
@@ -211,3 +231,4 @@ def test_unresolved_env_paths_are_rejected(repo_root, monkeypatch):
             repo_root / "configs/experiment/server_encoder_simsiam_medium.yaml",
             command="train-encoder",
         )
+    assert _expand_env_vars(("example", 1)) == ("example", 1)

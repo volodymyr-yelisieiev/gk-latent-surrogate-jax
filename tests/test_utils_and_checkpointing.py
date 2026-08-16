@@ -85,6 +85,35 @@ def test_append_csv_keeps_rectangular_union_schema(tmp_path):
     assert rows[0]["validation/loss"] == ""
 
 
+def test_append_csv_rejects_malformed_inputs_and_cleans_atomic_temp_files(tmp_path, monkeypatch):
+    with pytest.raises(ValueError, match="at least one field"):
+        append_csv(tmp_path / "empty.csv", {})
+
+    no_header = tmp_path / "no_header.csv"
+    no_header.write_text("\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="no header"):
+        append_csv(no_header, {"value": 1})
+
+    duplicate_header = tmp_path / "duplicate.csv"
+    duplicate_header.write_text("value,value\n1,2\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="duplicate header"):
+        append_csv(duplicate_header, {"value": 3})
+
+    malformed_row = tmp_path / "malformed.csv"
+    malformed_row.write_text("value,other\n1\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="malformed CSV row"):
+        append_csv(malformed_row, {"value": 3})
+
+    def fail_replace(*_args, **_kwargs):
+        raise OSError("simulated atomic replace failure")
+
+    atomic_path = tmp_path / "atomic.csv"
+    monkeypatch.setattr(logging_module.os, "replace", fail_replace)
+    with pytest.raises(OSError, match="atomic replace failure"):
+        append_csv(atomic_path, {"value": 1})
+    assert not list(tmp_path.glob(".atomic.csv.*"))
+
+
 def test_collect_git_info_records_exact_patch_hash_and_untracked_paths(tmp_path):
     subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
     subprocess.run(["git", "config", "user.email", "test@example.invalid"], cwd=tmp_path, check=True)
