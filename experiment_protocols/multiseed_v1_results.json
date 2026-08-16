@@ -385,7 +385,7 @@
   "protocol_id": "multiseed-v1",
   "protocol_sha256": "eda786bbad038eee5aa390d6ff48e385a4e136cd7c8e0865864c7924c551a945",
   "provenance": {
-    "postflight_head_commit": "55739a9f1d02294c0391714f64ed87ab950a805b",
+    "postflight_generation_commit": "1b0bb84652ad8ffe2e7a83e083e319d796163b7e",
     "postflight_maintenance_after_release": true,
     "raw_aggregate_sha256": "f1b68fd139474f4e11a44acd6c257c407cf9e68357b89d968b6764332e20cc8a",
     "raw_stage_ledger_not_published": true,
