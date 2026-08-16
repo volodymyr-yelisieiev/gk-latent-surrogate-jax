@@ -21,7 +21,8 @@ author-owned actions. No external communication or submission has been performed
 
 ## Technical checks to rerun from the final worktree
 
-- [x] `make check` passes with the final source and coverage gate (332 tests, 95.01% line coverage).
+- [x] `make check` passes with the final source and coverage gate (332 tests, at least 95% line
+      coverage; 95.01% on the local fallback runner).
 - [x] `make smoke-all` passes on the CPU fallback.
 - [x] `uv build` succeeds for the source distribution and wheel.
 - [x] `make -C thesis audit` succeeds and the PDF is rebuilt from current sources.
