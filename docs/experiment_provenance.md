@@ -29,6 +29,9 @@ has a resolved configuration hash, training seed, fold manifest hash, and checkp
 The five selection barriers use only validation data and all state `test_evidence_opened=false`.
 The model family is Transformer in folds 0, 1, and 3 and GRU in folds 2 and 4. Sequence checkpoint
 selection is by validation latent RMSE; family selection is by five-seed validation flux RMSE.
+When post-run maintenance is present, `provenance.postflight_generation_commit` identifies the
+clean checkout used to generate the sanitized manifest. The release commit necessarily follows
+that checkout, so this field is intentionally not expected to equal the final package `HEAD`.
 
 ## Analysis rule
 
