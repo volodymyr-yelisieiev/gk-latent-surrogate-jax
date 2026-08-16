@@ -21,13 +21,14 @@ author-owned actions. No external communication or submission has been performed
 
 ## Technical checks to rerun from the final worktree
 
-- [ ] `make check` passes with the final source and coverage gate.
-- [ ] `make smoke-all` passes on the CPU fallback.
-- [ ] `uv build` succeeds.
-- [ ] `make -C thesis audit` succeeds and the PDF is rebuilt from current sources.
-- [ ] `python3 thesis/scripts/audit_pdf.py --pdf thesis/build/main-thesis.pdf --log thesis/build/main-thesis.log --output thesis/build/manuscript-audit.json` passes.
-- [ ] Inspect every PDF page and all figures at readable scale.
-- [ ] Confirm no unresolved references, overfull boxes, stale numbers, private paths, or generated
+- [x] `make check` passes with the final source and coverage gate (332 tests, 95.01% line coverage).
+- [x] `make smoke-all` passes on the CPU fallback.
+- [x] `uv build` succeeds for the source distribution and wheel.
+- [x] `make -C thesis audit` succeeds and the PDF is rebuilt from current sources.
+- [x] `python3 thesis/scripts/audit_pdf.py --pdf thesis/build/main-thesis.pdf --log thesis/build/main-thesis.log --output thesis/build/manuscript-audit.json` passes.
+- [x] Inspect every PDF page and all figures at readable scale (contact sheet plus readable-scale
+      page/figure spot checks).
+- [x] Confirm no unresolved references, overfull boxes, stale numbers, private paths, or generated
       artifacts are tracked.
 
 ## Required human confirmations
