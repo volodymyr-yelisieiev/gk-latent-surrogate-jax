@@ -23,8 +23,10 @@ run, verify, and extend the latent surrogate pipeline.
 | `hardware_profiles.md` | portable hardware assumptions and config boundaries |
 | `real_data_binding_checklist.md` | real-data adapter requirements and missing-detail policy |
 
-Generated thesis prose, PDFs, plots, tables, caches, checkpoints, run directories, W&B
-state, and package artifacts do not belong in this repository. Recreate them from
-committed configs and CLI commands after experiment evidence is available. Keep tracked
-run reports concise, formal, and tied to reproducible evidence; working notes belong in
-Notion, ignored `outputs/`, or external lab notes.
+Generated thesis prose, PDFs, exploratory plots, tables, caches, checkpoints, run directories,
+W&B state, and package artifacts do not belong in this repository. The six reviewed figures in
+`thesis/figures/` are the deliberate source-controlled manuscript-asset exception; regenerate
+them with the thesis figure script and verify their release hash before publication. Recreate
+other outputs from committed configs and CLI commands after experiment evidence is available.
+Keep tracked run reports concise, formal, and tied to reproducible evidence; working notes
+belong in Notion, ignored `outputs/`, or external lab notes.
