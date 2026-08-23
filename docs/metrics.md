@@ -51,8 +51,14 @@ numerical scales; report per-target relative L2 and shape correlation before mak
 spectral-fidelity interpretation.
 
 `gks plot-representation` writes PCA and t-SNE plots from the latent cache, colored by
-flux. It records train/validation/test split labels alongside the projection points so the
-plots are tied to held-out-aware experiment artifacts.
+flux and marked by train/validation/test role. When `data.split_manifest` is set, the command
+uses those exact trajectory assignments and records the manifest hash and fold ID; it never
+creates a second seeded split over a manifest-bound cache. The split labels are also stored
+alongside the projection points. The result metadata includes the data/training seeds plus the
+latent-cache and encoder-checkpoint SHA-256 values, so a projection remains tied to one
+held-out-aware artifact lineage. When colocated resolved configs are present, their SHA-256 values
+are recorded as well; the thesis figure generator compares the canonical fold-0/seed-52 values to
+the accepted `multiseed-v1` release manifest before producing a manuscript asset.
 
 Rollout evaluation writes `metrics.json`, `metrics_by_step.csv`, and a latent MSE plot.
 Exact GyroSwin comparison tables require confirmed real-dataset and reference-metric

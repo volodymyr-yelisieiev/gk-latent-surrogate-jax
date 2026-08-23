@@ -20,6 +20,31 @@ the expected checkpoint/cache lineage. The five selection records all report
 These checks matter because a numerically plausible rollout can still be scientifically invalid if
 an encoder has seen its supposed test trajectories or if an unselected test model was inspected.
 
+\section{Qualitative Latent-Space Geometry}
+
+\autoref{fig:latent-space} visualizes all 1,173 encoded snapshots from one reconstructed
+protocol run: outer fold 0, training seed 52. The trajectory roles come directly from the frozen
+fold manifest, rather than from a second random split. Colour represents the preprocessed scalar
+flux target; marker shape identifies the training, validation, or test role. PCA gives a linear
+view, while t-SNE at perplexities 5 and 30 gives two local-neighbourhood views under the same seed.
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=\textwidth]{latent_space_projection.png}
+  \caption{Qualitative latent-space geometry for all 1,173 points in the canonical
+  \texttt{multiseed-v1} outer-fold-0, seed-52 cache. Colour denotes preprocessed flux and marker
+  shape denotes the exact manifest role. This is one protocol-bound run, not an aggregate
+  multiseed performance estimate. The t-SNE axes and global distances have no physical meaning,
+  and the panels do not establish split separation or model superiority.}
+  \label{fig:latent-space}
+\end{figure}
+
+The projections are descriptive only. There is no shared latent coordinate system across the 25
+fold--seed encoder fits, so averaging their coordinates would not define a meaningful multiseed
+plot. The visible flux ordering is compatible with the supervised diagnostic objective, but it is
+not a held-out accuracy result and does not imply that the representation retains the full
+five-dimensional state.
+
 \section{Outer-Fold Selection}
 
 The fold-level family choices are shown in \autoref{tab:fold-selection}. The selection means are

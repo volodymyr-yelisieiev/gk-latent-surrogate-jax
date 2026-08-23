@@ -1,0 +1,18 @@
+{
+  "claim_boundary": "single protocol-bound run; not an aggregate performance estimate",
+  "embed_config_resolved_sha256": "36ba7ee8eb79cf5b8e8264d5e367d7ec15d6325457d8b6f876c3d20fa76ebfd4",
+  "encoder_checkpoint_sha256": "106a407cc606ce8480a877d2bd6cec18931c756d6a026809f49957015d0f7abe",
+  "encoder_config_resolved_sha256": "2973ff40f274f3c2fcbf89d9453a05d604f9df3a369feffce4e5b641a91cb43b",
+  "latent_cache_sha256": "951f15b880170a416d8a73ea378b2c3f84caaa9ba4fcf53eda1a21a145faa725",
+  "latent_dim": 128,
+  "metrics_sha256": "3ce41ec9ca62e3a93886bbd377d6c3010477e3b5f7f71f07d9d5897acc130069",
+  "num_points": 1173,
+  "outer_fold": 0,
+  "points_sha256": "6046fec34b85a15eef694cfb5dcfa2e4bd19cf82dc7c9b8b22f1e98ed607f8f9",
+  "protocol_id": "multiseed-v1",
+  "source_commit": "be976808582239da201896bd20ef95ff91d97128",
+  "source_tag": "protocol/multiseed-v1",
+  "split_manifest_sha256": "cb57fb569959e32718ba0cd214bd00aed3c4ab094a6e465f84266d49721872b7",
+  "status": "qualitative_protocol_run",
+  "training_seed": 52
+}

@@ -12,6 +12,15 @@
 
 ## Final filename
 
+The supervisor-feedback candidate uses:
+
+`Volodymyr_Yelisieiev_Bachelor_Thesis_Draft.pdf`
+
+This feedback copy is not a formal submission.
+
+Delivery of the feedback copy through Mattermost is author-owned. Repository automation must not
+send it by email or through any other external channel.
+
 The review candidate follows the course convention:
 
 `2026S-12340334-Yelisieiev_Volodymyr-Thesis_BSc-v1-Latent_Surrogates.pdf`

@@ -4,17 +4,19 @@
 
 \section{Pipeline Overview}
 
-\autoref{fig:pipeline} summarizes the proposed two-stage surrogate. The encoder is trained first and
+\autoref{fig:methodology} summarizes the proposed two-stage surrogate. The encoder is trained first and
 then frozen. It converts every trajectory into a latent cache. Sequence models are trained only on
 windows from this cache. During evaluation, predicted latents are passed through the frozen
 diagnostic heads so that temporal errors can be measured in flux and spectra space.
 
 \begin{figure}[htbp]
   \centering
-  \includegraphics[width=0.95\textwidth]{pipeline_diagram.png}
-  \caption{Latent-surrogate pipeline. A five-dimensional snapshot is embedded into a compact
-  vector, evolved autoregressively, and evaluated through latent and diagnostic metrics.}
-  \label{fig:pipeline}
+  \includegraphics[width=0.99\textwidth]{methodology_overview.png}
+  \caption{End-to-end methodology. Panel A gives the exact channel-first shape trace of the
+  pointwise five-dimensional encoder. Panel B shows the joint stop-gradient SimSiam and supervised
+  diagnostic objective. Panel C shows one-step latent training, recursive eight-step rollout, and
+  evaluation through the frozen diagnostic heads.}
+  \label{fig:methodology}
 \end{figure}
 
 This staged design prevents file layout and spatial tensor size from leaking into the sequence
@@ -101,15 +103,7 @@ the encoder objective is
 \end{equation}
 Both spectra, \code{kyspec} and \code{fluxspec}, are used in the spectra term. The diagnostic heads
 make the representation task-aware, while the Siamese term encourages consistency under the small
-perturbations shown in \autoref{fig:encoder-objective}.
-
-\begin{figure}[htbp]
-  \centering
-  \includegraphics[width=0.92\textwidth]{encoder_objective_diagram.png}
-  \caption{Joint encoder training objective: two conservative augmented views are aligned with a
-  stop-gradient Siamese objective, while flux and spectra heads retain diagnostic information.}
-  \label{fig:encoder-objective}
-\end{figure}
+perturbations shown in \autoref{fig:methodology}, panel B.
 
 \section{Latent Cache}
 

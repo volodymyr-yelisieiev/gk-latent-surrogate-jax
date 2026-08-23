@@ -404,6 +404,15 @@ def _metadata_data_seed(payload: Mapping[str, Any] | None) -> int | None:
 
 
 def _checkpoint_run_config(path: str | Path) -> Mapping[str, Any] | None:
+    config_path = _checkpoint_run_config_path(path)
+    if config_path is not None:
+        with config_path.open(encoding="utf-8") as handle:
+            payload = json.load(handle)
+        return payload if isinstance(payload, Mapping) else None
+    return None
+
+
+def _checkpoint_run_config_path(path: str | Path) -> Path | None:
     candidate = Path(path)
     search_root = candidate.parent if candidate.is_file() else candidate
     for depth, parent in enumerate((search_root, *search_root.parents)):
@@ -411,9 +420,7 @@ def _checkpoint_run_config(path: str | Path) -> Mapping[str, Any] | None:
             break
         config_path = parent / "config_resolved.json"
         if config_path.is_file():
-            with config_path.open(encoding="utf-8") as handle:
-                payload = json.load(handle)
-            return payload if isinstance(payload, Mapping) else None
+            return config_path
     return None
 
 
@@ -2059,6 +2066,11 @@ def plot_representation(config: ExperimentConfig, *, dry_run: bool = False) -> d
     encoder_checkpoint = _optional_cache_encoder_lineage(config, cache_path)
     cache = LatentCacheDataset(cache_path)
     selected_ids = _selected_cache_trajectory_ids(cache, config)
+    explicit_splits = (
+        _trajectory_splits(config, tuple(cache.trajectory_ids()))
+        if config.data.split_manifest is not None
+        else None
+    )
     out = _output_dir(config)
     write_run_metadata(out, config=config.model_dump(mode="json"))
     (out / "config_resolved.yaml").write_text(config_to_yaml(config), encoding="utf-8")
@@ -2067,13 +2079,26 @@ def plot_representation(config: ExperimentConfig, *, dry_run: bool = False) -> d
         out,
         split_seed=config.data.seed,
         trajectory_ids=selected_ids,
+        trajectory_splits=explicit_splits,
         perplexities=config.evaluation.tsne_perplexities,
         tsne_max_iter=config.evaluation.tsne_max_iter,
         max_points=config.evaluation.representation_max_points,
     )
     summary["latent_cache"] = str(cache_path)
+    summary["latent_cache_sha256"] = _sha256_file(cache_path)
     summary["encoder_checkpoint"] = (
         _relative_artifact_path(encoder_checkpoint) if encoder_checkpoint else None
+    )
+    summary["encoder_checkpoint_sha256"] = (
+        _sha256_file(_checkpoint_pickle(encoder_checkpoint)) if encoder_checkpoint else None
+    )
+    cache_config_path = cache_path.parent / "config_resolved.json"
+    encoder_config_path = _checkpoint_run_config_path(encoder_checkpoint) if encoder_checkpoint else None
+    summary["embed_config_resolved_sha256"] = (
+        _sha256_file(cache_config_path) if cache_config_path.is_file() else None
+    )
+    summary["encoder_config_resolved_sha256"] = (
+        _sha256_file(encoder_config_path) if encoder_config_path else None
     )
     summary.update(
         _protocol_fields(

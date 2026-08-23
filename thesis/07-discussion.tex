@@ -66,7 +66,11 @@ The representation should therefore be described as diagnostic-oriented rather t
 complete. A 128-dimensional state can retain enough signal for finite forecasts and nontrivial
 shape correlations while still discarding scale information needed for quantitative transport
 prediction. The absence of a decoder also limits what can be claimed: no result here establishes
-that the latent vector can reconstruct the full five-dimensional distribution.
+that the latent vector can reconstruct the full five-dimensional distribution. The single-run
+projection in \autoref{fig:latent-space} shows flux-ordered local geometry, but the overlap of exact
+train, validation, and test markers is interpreted only descriptively. Its t-SNE coordinates are
+seed-specific and cannot be treated as physical distances, a separability test, or a multiseed
+performance estimate.
 
 \section{Methodological Contribution}
 

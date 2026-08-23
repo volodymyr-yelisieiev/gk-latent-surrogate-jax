@@ -12,6 +12,22 @@ make pdf
 
 The PDF is written to `thesis/build/main-thesis.pdf`.
 
+The methodology figure is generated deterministically from the medium encoder configuration:
+
+```bash
+make -C thesis figures-method
+```
+
+The qualitative latent-space figure is generated only from a protocol-bound representation
+artifact that passes the checks in `scripts/build_thesis_figures.py`; the script deliberately
+refuses synthetic or pre-protocol caches for the manuscript figure.
+
+```bash
+uv run python thesis/scripts/build_thesis_figures.py \
+  --representation-points /path/to/representation_points.npz \
+  --representation-metrics /path/to/metrics.json
+```
+
 The title page records matriculation number `12340334`, supervisor `Gianluca Galletti`, and
 degree programme `Artificial Intelligence` (study code `033 536`). Confirm the accepted thesis
 title, submission date, and final semester/version segment before formal upload. The current

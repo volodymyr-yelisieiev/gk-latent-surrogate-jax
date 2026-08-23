@@ -1,13 +1,14 @@
 # Final Thesis Checklist
 
-Status: technically complete evidence package; formal submission and originality checks remain
-author-owned actions. No external communication or submission has been performed.
+Status: manuscript engineering is in progress. AI-assisted English/German abstracts and the
+conclusion still require author review and acceptance. The final feedback PDF will be shared by the
+author through Mattermost; no automated external communication or formal submission is in scope.
 
 ## Present in the source
 
 - [x] JKU report template v2.2 and its license files.
-- [x] English and German abstracts, research question, scope, contributions, related work, method,
-      implementation, experiments, results, discussion, limitations, and conclusion.
+- [ ] Replace the existing English abstract, German abstract, and conclusion with reviewed and
+      author-accepted versions; all other manuscript sections are present.
 - [x] Nine-question story summary with no answer exceeding three sentences.
 - [x] Reproducibility appendix with frozen protocol, hashes, commands, stage counts, result summary,
       W&B status, and data-availability boundaries.
@@ -18,11 +19,14 @@ author-owned actions. No external communication or submission has been performed
 - [x] Historical mixed-split/seed-52-only claims removed from thesis-facing evidence.
 - [x] No full-field reconstruction, long-horizon, solver-speed, or matched GyroSwin claim.
 - [x] No live W&B URL; all 225 accepted metric-stage status records state W&B disabled and verified.
+- [x] Deterministic methodology figure with the exact five-dimensional shape trace, SimSiam and
+      diagnostic objectives, and the eight-step sequence rollout.
+- [x] Qualitative 1,173-point latent-space figure bound to the canonical outer-fold-0/seed-52
+      cache, exact split manifest, release config hashes, and tracked provenance sidecar.
 
-## Technical checks to rerun from the final worktree
+## Current source verification
 
-- [x] `make check` passes with the final source and coverage gate (332 tests, at least 95% line
-      coverage; 95.01% on the local fallback runner).
+- [x] `make check` passes (339 tests, 95.02% line coverage).
 - [x] `make smoke-all` passes on the CPU fallback.
 - [x] `uv build` succeeds for the source distribution and wheel.
 - [x] `make -C thesis audit` succeeds and the PDF is rebuilt from current sources.
@@ -31,6 +35,8 @@ author-owned actions. No external communication or submission has been performed
       page/figure spot checks).
 - [x] Confirm no unresolved references, overfull boxes, stale numbers, private paths, or generated
       artifacts are tracked.
+- [ ] After author-section integration, rerun the thesis audit and visual inspection before creating
+      the feedback PDF.
 
 ## Required human confirmations
 
@@ -44,8 +50,12 @@ author-owned actions. No external communication or submission has been performed
 
 ## External submission sequence
 
-- [ ] Build the final PDF after author review.
+- [ ] Build `Volodymyr_Yelisieiev_Bachelor_Thesis_Draft.pdf` after author-section integration and
+      final visual review.
+- [ ] The author shares that feedback version with the supervisor through Mattermost.
+- [ ] Record supervisor feedback and incorporate approved corrections.
+- [ ] Build the formal-submission PDF after author review and metadata confirmation.
 - [ ] Upload through the official IML hand-in link.
 - [ ] Email the submitted report to the supervisor and complete the grade-request procedure.
 
-Do not submit while any author-owned confirmation remains unresolved.
+Do not share or submit while any author-owned confirmation remains unresolved.

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from pathlib import Path
 
 import numpy as np
@@ -8,6 +10,7 @@ import pytest
 from gk_surrogate import pipeline as pipeline_module
 from gk_surrogate.config.load import load_config
 from gk_surrogate.data.latent_cache import LatentCacheDataset, LatentCacheWriter
+from gk_surrogate.data.split import TrajectorySplits
 from gk_surrogate.evaluation.representation import evaluate_representation, pca_project, tsne_project
 from gk_surrogate.pipeline import plot_representation
 
@@ -94,6 +97,101 @@ def test_representation_plots_honor_configured_trajectories(tmp_path):
             tmp_path / "repr_missing",
             split_seed=0,
             trajectory_ids=("traj-0", "missing-traj"),
+            perplexities=(3, 5),
+            tsne_max_iter=250,
+        )
+
+
+def test_representation_plots_use_exact_trajectory_splits_and_are_deterministic(tmp_path):
+    cache_path = tmp_path / "latent_cache.h5"
+    _write_representation_cache(cache_path)
+    cache = LatentCacheDataset(cache_path)
+    splits = TrajectorySplits(
+        train=("traj-0", "traj-1"),
+        val=("traj-2",),
+        test=("traj-3",),
+        strategy="explicit_manifest",
+        manifest_path="outer_fold_0.json",
+        manifest_sha256="a" * 64,
+        fold_id="outer-0",
+    )
+
+    first = evaluate_representation(
+        cache,
+        tmp_path / "first",
+        split_seed=52,
+        trajectory_splits=splits,
+        perplexities=(3, 5),
+        tsne_max_iter=250,
+        max_points=None,
+    )
+    second = evaluate_representation(
+        cache,
+        tmp_path / "second",
+        split_seed=52,
+        trajectory_splits=splits,
+        perplexities=(3, 5),
+        tsne_max_iter=250,
+        max_points=None,
+    )
+
+    assert first["split_source"] == "explicit_manifest"
+    assert first["split_manifest_sha256"] == "a" * 64
+    assert first["split_fold_id"] == "outer-0"
+    assert first["split_counts"] == {"test": 12, "train": 24, "val": 12}
+    first_points = np.load(first["points_npz"])
+    second_points = np.load(second["points_npz"])
+    assert set(first_points["split"].astype(str)) == {"train", "val", "test"}
+    assert np.array_equal(first_points["pca"], second_points["pca"])
+    assert np.array_equal(first_points["tsne_perplexity_3"], second_points["tsne_perplexity_3"])
+
+
+def test_representation_plots_reject_incomplete_or_overlapping_exact_splits(tmp_path):
+    cache_path = tmp_path / "latent_cache.h5"
+    _write_representation_cache(cache_path)
+    cache = LatentCacheDataset(cache_path)
+
+    incomplete = TrajectorySplits(
+        train=("traj-0", "traj-1"),
+        val=("traj-2",),
+        test=(),
+        strategy="explicit_manifest",
+    )
+    with pytest.raises(ValueError, match="missing configured trajectories"):
+        evaluate_representation(
+            cache,
+            tmp_path / "incomplete",
+            trajectory_splits=incomplete,
+            perplexities=(3, 5),
+            tsne_max_iter=250,
+        )
+
+    overlapping = TrajectorySplits(
+        train=("traj-0", "traj-1"),
+        val=("traj-1", "traj-2"),
+        test=("traj-3",),
+        strategy="explicit_manifest",
+    )
+    with pytest.raises(ValueError, match="assignments overlap"):
+        evaluate_representation(
+            cache,
+            tmp_path / "overlap",
+            trajectory_splits=overlapping,
+            perplexities=(3, 5),
+            tsne_max_iter=250,
+        )
+
+    extra = TrajectorySplits(
+        train=("traj-0", "traj-1", "extra-traj"),
+        val=("traj-2",),
+        test=("traj-3",),
+        strategy="explicit_manifest",
+    )
+    with pytest.raises(ValueError, match="contain extra trajectories"):
+        evaluate_representation(
+            cache,
+            tmp_path / "extra",
+            trajectory_splits=extra,
             perplexities=(3, 5),
             tsne_max_iter=250,
         )
@@ -192,6 +290,54 @@ def test_representation_pipeline_writes_metrics(repo_root, tmp_path):
     assert len(result["tsne_plots"]) == 2
 
 
+def test_representation_pipeline_uses_explicit_split_manifest(repo_root, tmp_path, monkeypatch):
+    cache_path = tmp_path / "latent_cache.h5"
+    _write_representation_cache(cache_path)
+    monkeypatch.setattr(
+        pipeline_module,
+        "_validate_latent_cache_protocol",
+        lambda *_args, **_kwargs: ("traj-0", "traj-1", "traj-2", "traj-3"),
+    )
+    monkeypatch.setattr(pipeline_module, "_optional_cache_encoder_lineage", lambda *_args: None)
+    split_manifest = tmp_path / "outer_fold_0.json"
+    split_manifest.write_text(
+        json.dumps(
+            {
+                "fold_id": "outer-0",
+                "splits": {
+                    "train": ["traj-0", "traj-1"],
+                    "val": ["traj-2"],
+                    "test": ["traj-3"],
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    config = load_config(repo_root / "configs/experiment/smoke_plot_representation.yaml", command="plot-representation")
+    config = config.model_copy(
+        update={
+            "output_dir": str(tmp_path / "repr_manifest"),
+            "data": config.data.model_copy(update={"split_manifest": str(split_manifest), "seed": 52}),
+            "training": config.training.model_copy(update={"seed": 52}),
+            "latent_cache": config.latent_cache.model_copy(update={"path": str(cache_path)}),
+            "evaluation": config.evaluation.model_copy(
+                update={"tsne_perplexities": (3.0, 5.0), "representation_max_points": None}
+            ),
+        }
+    )
+
+    result = plot_representation(config)
+
+    assert result["split_source"] == "explicit_manifest"
+    assert result["split_fold_id"] == "outer-0"
+    assert result["split_counts"] == {"test": 12, "train": 24, "val": 12}
+    assert result["split_manifest_sha256"] == hashlib.sha256(split_manifest.read_bytes()).hexdigest()
+    assert result["latent_cache_sha256"] == hashlib.sha256(cache_path.read_bytes()).hexdigest()
+    assert result["encoder_checkpoint_sha256"] is None
+    assert result["embed_config_resolved_sha256"] is None
+    assert result["encoder_config_resolved_sha256"] is None
+
+
 def test_representation_pipeline_honors_configured_cache_trajectories(repo_root, tmp_path, monkeypatch):
     monkeypatch.setattr(pipeline_module, "_requires_complete_protocol", lambda _config: False)
     monkeypatch.setenv("GK_CYCLONE_DATA_ROOT", "/tmp/gk-cyclone-root")
@@ -209,9 +355,7 @@ def test_representation_pipeline_honors_configured_cache_trajectories(repo_root,
             "data": config.data.model_copy(
                 update={
                     "split": "all",
-                    "cyclone": config.data.cyclone.model_copy(
-                        update={"trajectories": ("traj-0", "traj-1", "traj-2")}
-                    )
+                    "cyclone": config.data.cyclone.model_copy(update={"trajectories": ("traj-0", "traj-1", "traj-2")}),
                 }
             ),
             "evaluation": config.evaluation.model_copy(
