@@ -2,68 +2,72 @@
 \chapter{Conclusion}
 \label{chap:conclusion}
 
-This thesis investigated whether a compact latent representation of preprocessed five-dimensional
-gyrokinetic snapshots could support short-horizon forecasts of transport diagnostics. The
-JAX/Flax workflow encodes each snapshot as a 128-dimensional state and caches the resulting
-trajectory representations. It then trains gated recurrent unit (GRU) and causal Transformer
-sequence models and evaluates eight recursive steps through frozen flux and spectral diagnostic
-heads. The accepted evaluation covers 51 trajectories and uses retrospective five-fold nested group
-cross-validation with matched training seeds 52, 53, 54, 55, and 56. Because the universe and
-protocol were available during development, this is not a pristine locked-test result.
+This thesis examined whether a compact latent representation of preprocessed five-dimensional
+gyrokinetic snapshots can support accurate short-horizon forecasts of transport diagnostics. The
+implemented JAX/Flax workflow maps each snapshot to a 128-dimensional state, caches complete
+trajectory representations, and trains gated recurrent unit (GRU) and causal Transformer sequence
+models. Their predictions are evaluated through frozen flux and spectral diagnostic heads over an
+eight-step recursive rollout. The accepted study covers 51 trajectories and uses retrospective
+five-fold nested group cross-validation with matched training seeds 52, 53, 54, 55, and 56. Since
+the universe and protocol were available during development, the result is not a pristine
+locked-test estimate.
 
-The evidence gives a qualified answer to RQ1. The representation retains usable diagnostic
-information, but not enough for accurate diagnostic rollout relative to observed persistence. When
-supplied with true future latent states, the diagnostic-head oracle reaches flux RMSE 12.3732,
-compared with 10.0207 for direct persistence of the observed flux. The oracle therefore exposes a
-gap in the representation-to-diagnostic path, but it does not determine how much of that gap comes
-from the encoder or diagnostic head, nor does it isolate one causal bottleneck.
+For RQ1, the answer is qualified. The representation retains usable diagnostic information, but not
+enough for accurate diagnostic rollout relative to observed persistence. Supplying the frozen
+diagnostic head with true future latent states yields an oracle flux RMSE of 12.3732, compared with
+10.0207 for direct persistence of the observed flux. Diagnostic signal therefore survives the
+compression, yet the current representation-to-diagnostic path is not accurate enough to match the
+primary baseline. The oracle does not distinguish information lost by the encoder from error in the
+diagnostic head, and it does not isolate one causal bottleneck.
 
-RQ2 has a clear negative answer under the declared protocol. The selected learned sequence models
-have flux RMSE 14.6729, versus 10.0207 for direct observed-flux persistence. The
-learned-minus-persistence difference is +4.6522, with a paired hierarchical bootstrap interval of
-[+2.5788, +6.6470]. The hierarchically weighted fraction of improved paired runs is 31.6\%.
-Because the primary interval is strictly positive, the experiment supports a bounded negative
-result: on this universe and over this eight-step horizon, the selected learned models are less
-accurate than the baseline. This finding does not imply that latent sequence models are unsuitable
-in other settings.
+RQ2 is answered negatively under the declared protocol. The selected learned sequence models have
+flux RMSE 14.6729, whereas copying the last observed flux across the forecast horizon gives 10.0207.
+The learned-minus-persistence difference is +4.6522, with a paired hierarchical-bootstrap interval
+of [+2.5788, +6.6470]. The learned model has lower error in 31.6\% of hierarchically weighted
+paired runs. Because the primary interval is strictly positive, the experiment supports a bounded
+negative result: on this universe and over this horizon, the selected learned models are less
+accurate than observed-flux persistence. This finding is specific to the declared representation,
+training budget, selection procedure, and data universe; it is not a general rejection of latent
+sequence modelling.
 
-RQ3 yields no global GRU-versus-Transformer winner. Validation-only selection chose Transformer in
-outer folds 0, 1, and 3 and GRU in folds 2 and 4. The preferred family changes with the split, so a
-universal architecture ranking would go beyond the evidence.
+RQ3 does not yield a supported global GRU-versus-Transformer winner. Validation-only selection chose
+Transformer in outer folds 0, 1, and 3 and GRU in folds 2 and 4. The preferred family changes with
+the split, so a universal architecture ranking would go beyond the evidence.
 
-The secondary comparison does not overturn the primary result. Holding the last encoded state
+The latent-persistence control does not overturn the primary finding. Holding the last encoded state
 constant and decoding it gives flux RMSE 14.8049. Learned latent MSE is 0.4497, compared with
-0.4307 for this latent-persistence reference; the difference is +0.0189 with interval
-[-0.0699, +0.1332]. Since the interval includes zero, it does not establish a latent-dynamics
-advantage. Together, latent persistence and the oracle show that temporal prediction and the
-representation-to-diagnostic path both warrant further study, while neither control identifies a
-single cause of the observed deficit.
+0.4307 for latent persistence; the learned-minus-latent-persistence difference is +0.0189 with
+interval [-0.0699, +0.1332]. Since this interval includes zero, it establishes neither an advantage
+nor a clear disadvantage for the learned latent dynamics. The decoded-flux values are nearly equal,
+while the latent-MSE interval includes zero. This comparison therefore provides no evidence of a
+clear short-horizon gain over holding the encoded state fixed. Alongside the oracle, it indicates
+that both temporal prediction and the representation-to-diagnostic path warrant further study,
+while neither control assigns the observed deficit to a single cause.
 
 This negative performance result is separate from the engineering and reproducibility contribution.
 The repository provides a portable, testable workflow for trajectory-level splitting,
 representation learning, latent caching, validation-only family selection, recursive rollout,
-paired hierarchical aggregation, and artifact lineage. There are 230 accepted protocol slots and
-25 deliberately skipped unselected-family test slots. W\&B was disabled by protocol; local stage
-evidence and the frozen release manifest, rather than an online dashboard, define the accepted
-record. These controls make the selection barrier auditable and ensure that outer-test evidence does
-not determine the reported family choice.
+trajectory-balanced metrics, paired hierarchical aggregation, and artifact lineage. The frozen
+stage plan contains 230 accepted protocol slots and 25 deliberately skipped unselected-family test
+slots. W\&B was disabled by protocol; local stage evidence and the sanitized release manifest,
+rather than an online dashboard, define the accepted record. These controls make the selection
+barrier auditable and prevent outer-test evidence from determining the reported family choice.
 
-The practical implication is methodological: a finite or visually plausible rollout is not
-sufficient evidence of surrogate success. It must improve on a meaningful diagnostic baseline under
-a procedure that prevents trajectory leakage and keeps validation separate from outer testing.
-Scientifically, the oracle makes the spatial representation and diagnostic decoding natural first
-targets for follow-up, but does not prove that either is the sole bottleneck. A subsequent study
-should first test improvements to these components and then repeat the comparison under a separately
-frozen protocol on a new trajectory universe or a genuinely unseen test set. Context length,
-forecast horizon, and temporal model capacity should be expanded only after that comparison
-establishes an advantage over observed persistence.
+The practical implication is methodological. A rollout that remains finite or appears smooth is not
+therefore an accurate surrogate; it must improve on a meaningful diagnostic baseline under a
+procedure that prevents trajectory leakage and separates validation from outer testing. Future work
+should first improve the spatial representation and diagnostic decoding, then repeat the oracle and
+persistence comparisons under the same split discipline. Only after that path shows an advantage
+should longer contexts, wider temporal models, or substantially longer rollouts be treated as the
+main priority. The revised system should be evaluated under a separately frozen protocol on a new
+trajectory universe or, preferably, on a genuinely unseen test set.
 
-The result remains bounded by a single preprocessed universe of 51 trajectories, retrospective
-nested cross-validation, and an eight-step rollout. The diagnostics are evaluated in preprocessed
-target units, and no decoder was trained for the complete five-dimensional field. Accordingly, the
-thesis does not establish full-field reconstruction, long-horizon stability, or physical-unit
-accuracy. It also does not establish replacement of or speedup over a gyrokinetic solver, broad
-gyrokinetic generalization, or superiority over observed persistence. No matched numerical
-comparison with GyroSwin or universal superiority of either GRU or Transformer follows from this
-experiment. Until a learned model consistently improves on observed persistence under a new frozen
-protocol, direct persistence remains the appropriate diagnostic reference.
+The claims remain narrow. The 51 trajectories belong to one preprocessed universe, the evaluation
+is retrospective, and eight recursive steps establish only short-horizon behaviour. Diagnostics are
+reported in preprocessed target units, and no decoder was trained for the complete five-dimensional
+field. The thesis therefore does not establish full-field reconstruction, long-horizon stability,
+physical-unit accuracy, replacement of or speedup over a gyrokinetic solver, broad gyrokinetic
+generalization, or superiority over observed persistence. It also provides no matched numerical
+comparison with GyroSwin and no evidence that either GRU or Transformer is universally superior.
+Until a learned model consistently improves on observed persistence under a new frozen protocol,
+direct persistence remains the appropriate diagnostic reference.
