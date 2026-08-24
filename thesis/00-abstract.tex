@@ -1,31 +1,32 @@
 \cleardoubleoddpage
 \begin{otherlanguage}{english}
 \begin{abstract*}
-Gyrokinetic plasma-turbulence simulations are computationally demanding. This thesis evaluates a
+Gyrokinetic simulations of plasma turbulence are computationally demanding. This thesis evaluates a
 JAX/Flax surrogate that compresses preprocessed five-dimensional snapshots into 128-dimensional
 latent states, forecasts eight steps with gated recurrent unit (GRU) or causal Transformer models,
-and decodes scalar flux and two spectra.
+and decodes flux and two spectra.
 
 Evaluation uses 51 trajectories in retrospective five-fold nested group cross-validation with
 matched training seeds 52, 53, 54, 55, and 56; it is not a pristine locked-test result. Inner
-validation selected Transformer in outer folds 0, 1, and 3 and GRU in folds 2 and 4. The selected
-learned models had a flux RMSE (root mean squared error) of 14.6729; holding the last observed flux
-constant gave 10.0207. The learned-minus-baseline difference was +4.6522 with paired hierarchical
-bootstrap interval [+2.5788, +6.6470]. Weighted across the hierarchy, 31.6\% of paired runs had
-lower learned-model error. The strictly positive interval supports a bounded negative result:
-learned models do not beat observed persistence.
+validation chose Transformer in outer folds 0, 1, and 3 and GRU in folds 2 and 4. Selected-model
+flux RMSE (root mean squared error) was 14.6729, versus 10.0207 for holding the last observed flux
+constant. The learned-minus-baseline difference was +4.6522 with paired hierarchical bootstrap
+interval [+2.5788, +6.6470]. The hierarchically weighted fraction of improved paired runs was
+31.6\%. The strictly positive interval supports a bounded negative result: learned models do not
+beat observed persistence.
 
-Persistence of the last latent state, after decoding, had flux RMSE 14.8049. Learned latent
-mean squared error (MSE) was 0.4497 versus 0.4307 for latent persistence; the difference was +0.0189
-with interval [-0.0699, +0.1332]. Since the interval includes zero, no latent-dynamics advantage is
-established. A diagnostic-head oracle given true future latent states reached flux RMSE 12.3732.
-The representation retains usable diagnostic information but not enough for accurate diagnostic
-rollout relative to observed persistence; the oracle does not isolate one causal bottleneck.
+Decoding a constant last latent state (latent persistence) gave flux RMSE 14.8049. Learned latent
+MSE (mean squared error) was 0.4497 versus 0.4307 for latent persistence; the difference was +0.0189
+with interval [-0.0699, +0.1332]. Because the interval includes zero, it establishes no
+latent-dynamics advantage. A diagnostic-head oracle supplied with true future latents reached flux
+RMSE 12.3732. The representation retains usable diagnostic information but not enough for accurate
+diagnostic rollout relative to observed persistence; the oracle does not isolate one causal
+bottleneck.
 
-The contribution is an auditable workflow, not a positive performance claim. The study is limited
-to this universe, preprocessing, and horizon and establishes no full-field reconstruction,
-long-horizon stability, physical-unit accuracy, solver replacement or speedup, broad gyrokinetic
-generalization, matched numerical comparison with GyroSwin, or universal architecture winner.
+The contribution is an auditable workflow, not a positive performance claim. Results are limited to
+this universe, preprocessing, and horizon; they do not establish full-field or long-horizon
+accuracy, solver replacement or speedup, broad gyrokinetic generalization, a matched numerical
+comparison with GyroSwin, or a universal architecture winner.
 \end{abstract*}
 \end{otherlanguage}
 
@@ -35,35 +36,34 @@ generalization, matched numerical comparison with GyroSwin, or universal archite
 Gyrokinetische Simulationen von Plasmaturbulenz sind rechenintensiv. Diese Arbeit bewertet ein in
 JAX/Flax implementiertes Ersatzmodell. Es komprimiert vorverarbeitete fünfdimensionale
 Momentaufnahmen in 128-dimensionale latente Zustände, sagt mit Gated Recurrent Units (GRU) oder
-einem kausalen Transformer acht Schritte voraus und dekodiert daraus den skalaren Fluss und zwei
-Spektren.
+einem kausalen Transformer acht Schritte voraus und dekodiert daraus den Fluss und zwei Spektren.
 
 Die Auswertung umfasst 51 Trajektorien in einer retrospektiven fünffachen verschachtelten
 Gruppen-Kreuzvalidierung mit denselben Trainings-Seeds 52, 53, 54, 55 und 56; sie beruht nicht auf
 einer bis zur Auswertung unangetasteten Testmenge. Die innere Validierung wählte den Transformer in
-den äu{\ss}eren Falten 0, 1 und 3 und das GRU-Modell in den Falten 2 und 4. Für die ausgewählten
-Modelle betrug der Fluss-RMSE (Wurzel des mittleren quadratischen Fehlers) 14.6729; das
-Konstanthalten des letzten beobachteten Flusswerts ergab 10.0207. Der Fehlerunterschied (gelerntes
-Modell minus Referenz) betrug +4.6522 mit dem gepaarten hierarchischen Bootstrap-Intervall
-[+2.5788, +6.6470]. Hierarchisch gewichtet war der Fehler des gelernten Modells bei 31.6\% der
-gepaarten Läufe geringer. Das strikt positive Intervall stützt einen klar begrenzten negativen
-Befund: Die gelernten Modelle übertreffen die beobachtete Persistenz nicht.
+den äu{\ss}eren Falten 0, 1 und 3 und das GRU-Modell in den Falten 2 und 4. Der Fluss-RMSE (Wurzel
+des mittleren quadratischen Fehlers) der ausgewählten Modelle betrug 14.6729, gegenüber 10.0207 bei
+Konstanthaltung des letzten beobachteten Flusswerts. Die Fehlerdifferenz (gelerntes Modell minus
+Referenz) betrug +4.6522 mit dem gepaarten hierarchischen Bootstrap-Intervall
+[+2.5788, +6.6470]. Der hierarchisch gewichtete Anteil verbesserter gepaarter Läufe betrug 31.6\%.
+Das strikt positive Intervall stützt einen klar begrenzten negativen Befund: Die gelernten Modelle
+übertreffen die beobachtete Persistenz nicht.
 
-Die Persistenz des letzten latenten Zustands ergab nach der Dekodierung einen Fluss-RMSE von
-14.8049. Der mittlere quadratische Fehler (MSE) im latenten Raum betrug 0.4497 für die gelernten
-Modelle und 0.4307 für die latente Persistenz; die Differenz betrug +0.0189 mit dem
-Intervall [-0.0699, +0.1332]. Da dieses Intervall Null einschließt, ist kein Vorteil der gelernten
-latenten Dynamik belegt. Eine Oracle-Auswertung des Diagnosekopfs, bei der die wahren zukünftigen
-latenten Zustände vorlagen, erreichte einen Fluss-RMSE von 12.3732. Die Repräsentation enthält somit
+Die Dekodierung eines konstant gehaltenen letzten latenten Zustands (latente Persistenz) ergab einen
+Fluss-RMSE von 14.8049. Der mittlere quadratische Fehler (MSE) im latenten Raum betrug 0.4497 für die
+gelernten Modelle und 0.4307 für die latente Persistenz; die Differenz betrug +0.0189 mit dem
+Intervall [-0.0699, +0.1332]. Da dieses Intervall Null einschließt, belegt es keinen Vorteil der
+gelernten latenten Dynamik. Eine Oracle-Auswertung des Diagnosekopfs, der die wahren zukünftigen
+latenten Zustände erhielt, erreichte einen Fluss-RMSE von 12.3732. Die Repräsentation enthält somit
 nutzbare diagnostische Information, jedoch nicht genug für eine genaue diagnostische
 Mehrschrittvorhersage im Vergleich zur beobachteten Persistenz; einen einzelnen kausalen Engpass
-isoliert das Oracle nicht.
+isoliert die Oracle-Auswertung nicht.
 
 Der Beitrag liegt in einem überprüfbaren Arbeitsablauf, nicht in einem positiven Leistungsnachweis.
-Die Studie ist auf dieses Universum, die Vorverarbeitung und den Horizont begrenzt. Sie belegt keine
-vollständige Feldrekonstruktion, keine Stabilität über lange Horizonte und keine Genauigkeit in
-physikalischen Einheiten. Ebenso wenig belegt sie Ersatz oder Beschleunigung eines gyrokinetischen
-Solvers, breite Übertragbarkeit auf andere gyrokinetische Regime, einen abgestimmten numerischen
-Vergleich mit GyroSwin oder die allgemeingültige Überlegenheit einer Architektur.
+Die Ergebnisse sind auf dieses Universum, die Vorverarbeitung und den Horizont begrenzt. Sie belegen
+weder vollständige Feldrekonstruktion noch Genauigkeit über lange Horizonte. Ebenso wenig belegen
+sie Ersatz oder Beschleunigung eines gyrokinetischen Solvers, breite Übertragbarkeit auf andere
+gyrokinetische Regime, einen abgestimmten numerischen Vergleich mit GyroSwin oder die
+allgemeingültige Überlegenheit einer Architektur.
 \end{abstract*}
 \end{otherlanguage}
