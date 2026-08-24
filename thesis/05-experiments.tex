@@ -2,85 +2,112 @@
 \chapter{Experimental Setup}
 \label{chap:experiments}
 
-\section{Evidence Tiers}
+\section{Evidence Tiers and Frozen Scope}
 
-Experiments are divided into three evidence tiers. Synthetic smoke runs verify that the complete
-pipeline executes without private data or GPU hardware. Tiny real-data and small multi-trajectory
-runs validate the Cyclone schema, diagnostic availability, and held-out evaluation commands. The
-medium experiment is the only tier used for the principal sequence-model comparison. This
-separation avoids presenting a debugging fixture as scientific evidence.
+The repository separates engineering evidence from thesis evidence. Synthetic smoke runs test
+that the data contract, encoder, cache, sequence trainer, rollout evaluator, and report writers
+execute without private data or a GPU. Small real-data checks validate the Cyclone/KvikIO schema
+and target fields. Only the byte-verified medium universe and its frozen protocol enter the
+scientific comparison. This separation is important: a successful command is not evidence that a
+surrogate generalizes.
 
-\section{Medium Dataset}
+The accepted comparison is a retrospective five-fold nested group cross-validation study. The
+51-trajectory universe was available for development and its manifest is therefore not a pristine
+locked test set. Each outer fold holds out trajectories that are disjoint from its training and
+inner-validation groups. Model and checkpoint choices are made inside the fold, before the outer
+test evidence for that fold is opened. The reported uncertainty is an estimate of performance on
+this finite universe, not a claim of deployment-level generalization.
 
-The medium latent cache contains 51 trajectories and 1,173 snapshots after preprocessing. Each
-trajectory contributes 23 retained time steps. The input snapshot has four channels and spatial
-shape $(32,8,16,85,32)$. The associated targets are a scalar flux and two 32-bin spectra. Data are
-read from the preprocessed Cyclone/KvikIO layout with offset 80 and temporal subsampling by eight.
+\section{Medium Dataset and Data Binding}
 
-The deterministic trajectory split uses seed 52. It assigns 41 trajectories to training, five to
-validation, and five to test. This gives 943 training, 115 validation, and 115 test latent points.
-With context length eight and one-step training targets, the cache exposes 615 training windows and
-75 windows in each held-out split. The eight-step test rollout requires longer windows and yields
-40 evaluated windows across the five test trajectories.
+The consumed universe contains 51 trajectories and 1,173 retained timestep bundles. Every
+trajectory contributes 23 retained time steps under the preprocessing contract: four input
+channels, spatial shape $(32,8,16,85,32)$, offset 80, temporal subsampling by eight, stored
+$\code{kyspec}$ and $\code{fluxspec}$ targets, and a preferred float32 representation. The
+channel-first snapshot contract is
+\begin{equation}
+  x \in \mathbb{R}^{B\times C\times S_1\times S_2\times S_3\times S_4\times S_5}.
+\end{equation}
+The byte-level universe manifest records the ordered trajectory identifiers, the 1,173 sampled
+binary timestep files, and the metadata files required by the loader. Both the durable consumed
+subset and the operational public-data alias were checked against the same manifest by hashing
+each consumed file; no path is used as a dataset identity.
 
-\section{Encoder Training and Validation}
+The five outer folds contain 30 or 31 training trajectories, 10 or 11 validation trajectories,
+and 10 or 11 test trajectories. The exact fold manifests are committed under
+\path{experiment_protocols/} and are addressed by their SHA-256 digest. Within each fold, all
+normalization statistics, encoder parameters, latent caches, and sequence checkpoints are derived
+from the fold's training trajectories. This is an end-to-end split: a trajectory used by an
+encoder is never called an outer-test trajectory for that fold.
 
-The 128-dimensional encoder is trained for 500 update steps with a global batch size of four across
-four GPUs. The optimizer uses learning rate $10^{-3}$, weight decay $10^{-4}$, 25 warmup steps, and
-gradient clipping. Diagnostic and SimSiam weights are given in \autoref{chap:method}.
+\section{Representation and Temporal Models}
 
-After embedding the dataset, a ridge regressor is fitted from frozen training latents to flux and
-evaluated on the validation trajectories. This probe asks whether flux information is linearly
-accessible without changing the encoder. PCA and t-SNE are also computed for qualitative
-inspection. These projections are descriptive; they are not used to select the sequence model and
-cannot by themselves prove that the representation captures physical state.
+The convolutional encoder maps each preprocessed snapshot to a 128-dimensional latent state. Its
+training objective combines a SimSiam-style consistency term with supervised heads for scalar flux
+and the two one-dimensional spectra. The heads are retained after encoder training so that a
+latent rollout can be evaluated in the original diagnostic space. The work deliberately does not
+claim five-dimensional field reconstruction; the decoder required for that claim is outside the
+scope of the study.
 
-\section{Sequence Comparison}
+The sequence candidates are a gated recurrent unit (GRU) and a causal Transformer. Latent-state
+persistence is the primary latent-dynamics reference, and direct persistence of the observed flux
+is the primary diagnostic baseline. An additional diagnostic-head oracle applies the frozen head
+to true future latents. It is an analysis control: it is not a forecast and cannot be interpreted
+as an achievable model result. All learned candidates use the same eight-step context, recursive
+eight-step forecast horizon, diagnostic lineage, and trajectory-balanced metrics.
 
-The principal comparison uses persistence, GRU, causal Transformer, cache-normalized GRU, and
-cache-normalized causal Transformer. Each learned model has its own checkpoint, but the encoder,
-latent cache, validation trajectories, context length, forecast horizon, diagnostic heads, and
-aggregation are fixed. The four learned candidates and persistence are first evaluated on the
-validation split. Flux RMSE selects the strongest learned candidate; the locked test is then opened
-once for that candidate and the pre-declared persistence reference. The final test comparison is
-summarized in \autoref{tab:main-results}.
+Each sequence trainer runs for 500 updates. The GRU has one 256-unit layer; the Transformer uses
+width 256, depth three, four attention heads, and no dropout. The cache-normalized variants fit
+latent normalization on training trajectories only. Sequence checkpoints are selected by the
+lowest validation trajectory-balanced latent RMSE. This checkpoint rule is distinct from family
+selection: after each candidate has a validation checkpoint, the GRU or Transformer family with
+the lower arithmetic mean of validation trajectory-balanced flux RMSE across seeds is selected
+within that outer fold.
 
-All learned sequence models train for 500 steps. The GRU has one 256-unit layer. The Transformer
-has width 256, depth three, four heads, and no dropout. Cache-normalized variants calculate
-per-latent statistics on training trajectories and use the same architecture and optimization
-schedule as their unnormalized counterparts. GRU runs use training seed 53 and Transformer runs use
-seed 54; consequently, architecture and initialization are not fully disentangled. ``Best learned
-candidate'' therefore means the lowest observed validation RMSE among these single-seed runs.
+\section{Matched Seeds and Stage Ledger}
 
-An integrity audit found that an earlier exploratory comparison had combined an encoder/cache made
-with split seed 52 and downstream evaluations made with different split seeds. Four of five nominal
-test trajectories in one such evaluation had therefore been visible during encoder training. Those
-numbers are excluded from scientific evidence. The accepted experiment uses seed 52 for encoder,
-cache, sequence training, validation selection, and locked testing, with stored trajectory-manifest
-hashes checked at the pipeline boundaries.
+The development/data seed is fixed at 52. Training seeds are matched across learned candidates at
+52, 53, 54, 55, and 56, so initialization variability is visible without changing the trajectory
+universe. Persistence controls are evaluated on the same trajectories and horizons and do not
+  receive a fictitious training seed. The frozen stage plan contains 255 slots: 230 accepted
+  ledger slots (225 metric stages and five selection barriers) and 25 explicitly skipped
+  unselected-family test stages. No stage is silently
+dropped, retried into the accepted set, or selected from an outer-test metric.
 
-\section{Metrics}
+The outer-fold family selections are Transformer for folds 0, 1, and 3, and GRU for folds 2 and
+4. This is a fold-wise selection result, not evidence that one architecture is a global winner.
+The release manifest records all 25 fold--seed rows, the selected family, stage configuration
+hashes, and the exact accepted/skipped counts without publishing trajectory identifiers or server
+paths.
 
-Flux RMSE is the primary metric because the research question concerns transport-predictive
-rollouts. Flux MAE and relative error provide complementary scale information. Latent MSE measures
-representation-space trajectory accuracy. Spectra relative $L_2$, log-MSE, and shape correlation
-are retained as secondary diagnostics. Stability requires finite outputs over the complete rollout.
+\section{Metrics and Estimands}
 
-Metrics are computed per horizon and aggregated with equal trajectory weights. This matters because
-overlapping windows are correlated and the number of valid windows can differ across trajectories.
-The reported test result therefore describes the mean of five trajectory-level evaluations rather
-than treating every overlapping window as an independent physical realization. A descriptive
-paired interval is computed from the five trajectory-level differences; overlapping windows are not
-treated as independent samples, and no significance claim is made.
+Flux RMSE is the primary metric because the research question concerns diagnostic forecasting. It
+is computed per trajectory and then averaged, so a trajectory with many overlapping windows cannot
+dominate a trajectory with fewer valid windows. Latent MSE, flux MAE, spectral relative $L_2$ error,
+spectral shape correlation, and finite-output stability are secondary diagnostics. Values are in
+preprocessed target units; no physical-unit conversion is claimed.
 
-\section{Additional Experiments}
+The primary estimand is the selected learned model minus observed-flux persistence difference in
+per-trajectory flux RMSE, averaged hierarchically with equal outer-fold, training-seed, and
+trajectory weights. A paired hierarchical bootstrap \citep{saravanan2020hierarchical} resamples training seeds and trajectories
+within the fold structure; its 10,000 replicates use a fixed seed recorded in the aggregate. The
+secondary estimand is the analogous learned-minus-latent-persistence difference in latent MSE.
+We report both point estimates and intervals, plus per-seed variability and a hierarchically
+weighted fraction of improved trajectory runs. If the primary interval includes zero, the protocol
+requires the conclusion ``no convincing advantage''; a negative result is valid evidence, not a
+reason to change the selection rule.
 
-A separate log-spectra sensitivity cache evaluates the same model families under a different
-preprocessing protocol. An optional GuppyLM trunk-transfer experiment maps compatible attention
-and MLP tensors from a small text language model while reinitializing the continuous latent
-projections. These experiments are reported only as sensitivity evidence because their cache and
-initialization protocols differ from the principal table.
+Spectra are reported separately for $\code{kyspec}$ and $\code{fluxspec}$, with relative error and
+shape correlation shown together. Their scales and norms differ, so a single pooled spectral
+number is not used to claim physical fidelity. No transfer-learning, full-field reconstruction,
+long-horizon, solver-speed, or GyroSwin comparison is part of the evidence set.
 
-GyroSwin remains related work rather than an experimental row. Public architecture descriptions do
-not provide the matched artifact bundle needed to run its checkpoint under the exact split and
-metric implementation used here.
+\section{Reproducibility and W\&B Policy}
+
+The protocol, fold manifests, resolved configuration hashes, stage evidence, and release manifest
+form a chain from source tag to result. Raw data, checkpoints, latent caches, and per-trajectory
+rows remain outside Git. W\&B is disabled for all 225 accepted metric stages; local status files explicitly
+record \code{enabled=false}, \code{requested=false}, and \code{mode=disabled}. Consequently the
+thesis cites no live W\&B run or URL. The local manifest, not an online dashboard, is the source of
+truth for this result.

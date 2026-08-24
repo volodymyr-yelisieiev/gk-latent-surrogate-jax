@@ -123,8 +123,10 @@ def test_pipeline_passes_wandb_config_to_train_and_eval_loggers(repo_root, tmp_p
                     "path": embedded["latent_cache"],
                     "encoder_checkpoint_path": train_result["checkpoint"],
                     "sequence_checkpoint_path": None,
-                    "use_persistence_baseline": True,
                 }
+            ),
+            "evaluation": eval_cfg.evaluation.model_copy(
+                update={"baseline_mode": "latent_state_persistence_decoded"}
             ),
         }
     )

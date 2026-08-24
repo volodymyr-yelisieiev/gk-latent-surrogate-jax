@@ -1,47 +1,61 @@
 # Final Thesis Checklist
 
-Status: technically complete review draft. No external communication or submission has been
-performed.
+Status: manuscript engineering is in progress. AI-assisted English/German abstracts and the
+conclusion still require author review and acceptance. The final feedback PDF will be shared by the
+author through Mattermost; no automated external communication or formal submission is in scope.
 
-## Completed autonomously
+## Present in the source
 
-- [x] Requirements from the IML BSc Thesis Seminar document mapped to the package.
-- [x] JKU report template v2.2 vendored with its license and font licenses.
-- [x] English and German abstracts included.
-- [x] Research question, scope, contributions, related work, method, implementation, experiments,
-  results, discussion, limitations, and conclusion written.
-- [x] Nine-question story summary included as Appendix A, with no answer exceeding three sentences.
-- [x] Reproducibility appendix includes commands, artifact paths, hashes, and availability limits.
-- [x] Author--year bibliography included and compiled.
-- [x] Main numeric claims use the canonical split-seed-52 protocol, validation-only selection, and
-  locked test; flux RMSE is primary and the bounded 4.70% point-estimate improvement is accompanied
-  by a paired trajectory interval and explicit uncertainty limits.
-- [x] The draft does not claim full-field reconstruction or a matched numerical comparison with
-  GyroSwin.
-- [x] PDF builds as an unencrypted A4 document with extractable text.
+- [x] JKU report template v2.2 and its license files.
+- [ ] Replace the existing English abstract, German abstract, and conclusion with reviewed and
+      author-accepted versions; all other manuscript sections are present.
+- [x] Nine-question story summary with no answer exceeding three sentences.
+- [x] Reproducibility appendix with frozen protocol, hashes, commands, stage counts, result summary,
+      W&B status, and data-availability boundaries.
+- [x] Retrospective five-fold nested group cross-validation with matched seeds 52--56 and
+      validation-only selection.
+- [x] Sanitized release manifest with 230 accepted and 25 skipped stage slots.
+- [x] Primary negative result reported with point estimate and hierarchical bootstrap interval.
+- [x] Historical mixed-split/seed-52-only claims removed from thesis-facing evidence.
+- [x] No full-field reconstruction, long-horizon, solver-speed, or matched GyroSwin claim.
+- [x] No live W&B URL; all 225 accepted metric-stage status records state W&B disabled and verified.
+- [x] Deterministic methodology figure with the exact five-dimensional shape trace, SimSiam and
+      diagnostic objectives, and the eight-step sequence rollout.
+- [x] Qualitative 1,173-point latent-space figure bound to the canonical outer-fold-0/seed-52
+      cache, exact split manifest, release config hashes, and tracked provenance sidecar.
+
+## Current source verification
+
+- [x] `make check` passes (339 tests, 95.02% line coverage).
+- [x] `make smoke-all` passes on the CPU fallback.
+- [x] `uv build` succeeds for the source distribution and wheel.
+- [x] `make -C thesis audit` succeeds and the PDF is rebuilt from current sources.
+- [x] `python3 thesis/scripts/audit_pdf.py --pdf thesis/build/main-thesis.pdf --log thesis/build/main-thesis.log --output thesis/build/manuscript-audit.json` passes.
+- [x] Inspect every PDF page and all figures at readable scale (contact sheet plus readable-scale
+      page/figure spot checks).
+- [x] Confirm no unresolved references, overfull boxes, stale numbers, private paths, or generated
+      artifacts are tracked.
+- [ ] After author-section integration, rerun the thesis audit and visual inspection before creating
+      the feedback PDF.
 
 ## Required human confirmations
 
-- [x] Record matriculation number `12340334`.
-- [x] Record supervisor `Gianluca Galletti` as supplied by the author.
-- [x] Record study code `033 536` with the Artificial Intelligence programme.
-- [ ] Confirm whether the official title page requires an academic title for the supervisor.
-- [ ] Confirm the official degree wording: `Bachelor of Science` and `Artificial Intelligence`.
-- [ ] Confirm the final title with the supervisor.
-- [ ] Confirm the submission month/date and the semester code used in the filename.
-- [ ] Verify whether an institutional declaration of originality or AI-use statement must be added.
-- [ ] Read every page and verify all technical statements, citations, numbers, names, and links.
+- [x] Matriculation number `12340334`, supervisor `Gianluca Galletti`, and supplied programme/study
+      code are recorded.
+- [ ] Confirm official title-page wording, supervisor academic title, submission date, semester,
+      and filename.
+- [ ] Run the institutional originality check and add any required declaration or AI-use statement.
+- [ ] Read and accept every page, citation, number, name, and link.
 - [ ] Obtain supervisor feedback and incorporate approved corrections.
-- [ ] Confirm that all mandatory seminar lectures have been watched.
 
-## External submission sequence (on hold)
+## External submission sequence
 
-- [ ] Build the final PDF after the final author review.
-- [x] Prepare a correctly named review candidate:
-  `2026S-12340334-Yelisieiev_Volodymyr-Thesis_BSc-v1-Latent_Surrogates.pdf`.
-- [ ] Upload the PDF through the IML thesis hand-in link.
-- [ ] Email the submitted report to the supervisor.
-- [ ] Submit the grade-request form.
-- [ ] Email the supervisor asking them to enter the grade.
+- [ ] Build `Volodymyr_Yelisieiev_Bachelor_Thesis_Draft.pdf` after author-section integration and
+      final visual review.
+- [ ] The author shares that feedback version with the supervisor through Mattermost.
+- [ ] Record supervisor feedback and incorporate approved corrections.
+- [ ] Build the formal-submission PDF after author review and metadata confirmation.
+- [ ] Upload through the official IML hand-in link.
+- [ ] Email the submitted report to the supervisor and complete the grade-request procedure.
 
-Do not submit while any placeholder remains or before completing the author review.
+Do not share or submit while any author-owned confirmation remains unresolved.

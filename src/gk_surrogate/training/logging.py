@@ -8,8 +8,10 @@ import importlib
 import json
 import math
 import numbers
+import os
 import re
 import subprocess
+import tempfile
 from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Any
@@ -37,13 +39,46 @@ def append_jsonl(path: str | Path, payload: Mapping[str, Any]) -> Path:
 def append_csv(path: str | Path, payload: Mapping[str, Any]) -> Path:
     out = Path(path)
     ensure_dir(out.parent)
-    row = {key: scalarize(value) for key, value in payload.items()}
-    write_header = not out.exists()
-    with out.open("a", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=list(row.keys()))
-        if write_header:
+    row = {str(key): scalarize(value) for key, value in payload.items()}
+    if not row:
+        raise ValueError("CSV rows must contain at least one field")
+
+    existing_fields: list[str] = []
+    existing_rows: list[dict[str, str]] = []
+    if out.exists() and out.stat().st_size:
+        with out.open(newline="", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            existing_fields = list(reader.fieldnames or [])
+            if not existing_fields:
+                raise ValueError(f"CSV file has no header: {out}")
+            if len(set(existing_fields)) != len(existing_fields):
+                raise ValueError(f"CSV file has duplicate header fields: {out}")
+            for line_number, old_row in enumerate(reader, start=2):
+                if None in old_row or any(value is None for value in old_row.values()):
+                    raise ValueError(f"malformed CSV row {line_number}: {out}")
+                existing_rows.append({field: old_row.get(field, "") for field in existing_fields})
+
+    fieldnames = existing_fields + [key for key in row if key not in existing_fields]
+    temporary_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            "w",
+            newline="",
+            encoding="utf-8",
+            dir=out.parent,
+            prefix=f".{out.name}.",
+            delete=False,
+        ) as temporary:
+            temporary_path = Path(temporary.name)
+            writer = csv.DictWriter(temporary, fieldnames=fieldnames, extrasaction="raise")
             writer.writeheader()
-        writer.writerow(row)
+            writer.writerows(existing_rows)
+            writer.writerow(row)
+        os.replace(temporary_path, out)
+    except Exception:
+        if temporary_path is not None:
+            temporary_path.unlink(missing_ok=True)
+        raise
     return out
 
 
@@ -63,6 +98,10 @@ class MetricsLogger:
         self._wandb_log_artifacts = False
         self._wandb_run_name: str | None = None
         self._wandb_status = self._init_wandb(wandb_config or {}, run_config=run_config)
+        # Keep a durable, sanitized record even when W&B is deliberately
+        # disabled. This prevents a missing file from being mistaken for a
+        # missing provenance decision in multi-stage experiments.
+        write_json(self.output_dir / "wandb_status.json", self._wandb_status)
 
     def log(self, metrics: Mapping[str, Any], *, prefix: str | None = None) -> None:
         flat = _flatten_mapping(metrics)

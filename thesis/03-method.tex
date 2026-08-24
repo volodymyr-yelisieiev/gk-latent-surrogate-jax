@@ -4,17 +4,19 @@
 
 \section{Pipeline Overview}
 
-\autoref{fig:pipeline} summarizes the proposed two-stage surrogate. The encoder is trained first and
+\autoref{fig:methodology} summarizes the proposed two-stage surrogate. The encoder is trained first and
 then frozen. It converts every trajectory into a latent cache. Sequence models are trained only on
 windows from this cache. During evaluation, predicted latents are passed through the frozen
 diagnostic heads so that temporal errors can be measured in flux and spectra space.
 
 \begin{figure}[htbp]
   \centering
-  \includegraphics[width=0.95\textwidth]{pipeline_diagram.png}
-  \caption{Latent-surrogate pipeline. A five-dimensional snapshot is embedded into a compact
-  vector, evolved autoregressively, and evaluated through latent and diagnostic metrics.}
-  \label{fig:pipeline}
+  \includegraphics[width=0.99\textwidth]{methodology_overview.png}
+  \caption{End-to-end methodology. Panel A gives the exact channel-first shape trace of the
+  pointwise five-dimensional encoder. Panel B shows the joint stop-gradient SimSiam and supervised
+  diagnostic objective. Panel C shows one-step latent training, recursive eight-step rollout, and
+  evaluation through the frozen diagnostic heads.}
+  \label{fig:methodology}
 \end{figure}
 
 This staged design prevents file layout and spatial tensor size from leaking into the sequence
@@ -101,15 +103,7 @@ the encoder objective is
 \end{equation}
 Both spectra, \code{kyspec} and \code{fluxspec}, are used in the spectra term. The diagnostic heads
 make the representation task-aware, while the Siamese term encourages consistency under the small
-perturbations shown in \autoref{fig:encoder-objective}.
-
-\begin{figure}[htbp]
-  \centering
-  \includegraphics[width=0.92\textwidth]{encoder_objective_diagram.png}
-  \caption{Joint encoder training objective: two conservative augmented views are aligned with a
-  stop-gradient Siamese objective, while flux and spectra heads retain diagnostic information.}
-  \label{fig:encoder-objective}
-\end{figure}
+perturbations shown in \autoref{fig:methodology}, panel B.
 
 \section{Latent Cache}
 
@@ -128,14 +122,24 @@ statistics to the training split prevents test information from entering preproc
 
 \section{Sequence Models}
 
-\subsection{Persistence}
+\subsection{Persistence References}
 
-The persistence baseline predicts
+The latent-state persistence reference predicts
 \begin{equation}
   \hat z_{t+1}=z_t
 \end{equation}
-and repeats this value during recursive rollout. It is difficult to beat when adjacent states change
-slowly, making it a necessary baseline for short-horizon dynamics.
+and repeats this value during recursive rollout. Diagnostic errors for this reference are computed
+after the repeated latent passes through the frozen diagnostic head. It therefore tests temporal
+prediction in the learned representation, but it is not persistence of an observed diagnostic.
+
+For a diagnostic $y$, the observed-diagnostic persistence reference instead predicts
+\begin{equation}
+  \hat y_{t+k}=y_t,\qquad k=1,\ldots,T_r.
+\end{equation}
+It uses the last diagnostic value in the context directly and requires neither the encoder nor the
+diagnostic head. This is the primary persistence reference for flux forecasting. Finally, applying
+the frozen diagnostic head to each true future latent $z_{t+k}$ measures the diagnostic-head error
+floor on the retained latent cache. This oracle analysis is not a forecast model.
 
 \subsection{GRU}
 
@@ -157,8 +161,8 @@ dissimilarity. Adam-style optimization uses learning rate $10^{-3}$, weight deca
 \section{Autoregressive Evaluation}
 
 Given true context $z_{t-T_c+1:t}$, the model predicts $\hat z_{t+1}$. The context window is shifted,
-the prediction is appended, and the procedure is repeated for eight steps. The persistence baseline
-uses the same window construction. For latent prediction $\hat Z$ and target $Z$, the principal
+the prediction is appended, and the procedure is repeated for eight steps. Both persistence
+references use the same windows and forecast horizon. For latent prediction $\hat Z$ and target $Z$, the principal
 latent metric is
 \begin{equation}
   \mathrm{MSE}_{z}=\frac{1}{BT_rD}\lVert \hat Z-Z\rVert_2^2.

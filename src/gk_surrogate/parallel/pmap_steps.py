@@ -37,6 +37,7 @@ def make_pmap_encoder_train_step(axis_name: str):
     @partial(jax.pmap, axis_name=axis_name)
     def step(state: TrainState, batch: Mapping[str, Any]) -> tuple[TrainState, dict[str, Array]]:
         rng, step_rng = jax.random.split(state.rng)
+        step_rng = jax.random.fold_in(step_rng, jax.lax.axis_index(axis_name))
 
         def loss_fn(params: Any) -> tuple[Array, dict[str, Array]]:
             return _encoder_loss(params, state, batch, step_rng, train=True)
@@ -67,6 +68,7 @@ def make_pmap_sequence_train_step(axis_name: str):
     @partial(jax.pmap, axis_name=axis_name)
     def step(state: TrainState, batch: Mapping[str, Any]) -> tuple[TrainState, dict[str, Array]]:
         rng, step_rng = jax.random.split(state.rng)
+        step_rng = jax.random.fold_in(step_rng, jax.lax.axis_index(axis_name))
         step_state = state.replace_rng(step_rng)
 
         def loss_fn(params: Any) -> tuple[Array, dict[str, Array]]:

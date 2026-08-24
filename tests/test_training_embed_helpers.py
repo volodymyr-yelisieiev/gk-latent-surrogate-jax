@@ -39,25 +39,6 @@ def test_encode_snapshots_chunks_object_outputs():
     assert calls == [2, 2, 1]
 
 
-def test_encode_snapshots_accepts_legacy_apply_signatures():
-    snapshots = np.ones((2, 2, 2), dtype=np.float32)
-
-    def no_train_apply_fn(params, x):
-        scale = params["params"]["scale"]
-        return (jnp.ones((x.shape[0], 1), dtype=jnp.float32) * scale,)
-
-    tuple_z = encode_snapshots(no_train_apply_fn, {"scale": jnp.asarray(3.0)}, snapshots, batch_size=2)
-    assert tuple_z.tolist() == [[3.0], [3.0]]
-
-    def params_only_apply_fn(params, x):
-        if "params" in params:
-            raise TypeError("plain params expected")
-        return jnp.ones((x.shape[0], 1), dtype=jnp.float32) * params["scale"]
-
-    array_z = encode_snapshots(params_only_apply_fn, {"scale": jnp.asarray(4.0)}, snapshots, batch_size=2)
-    assert array_z.tolist() == [[4.0], [4.0]]
-
-
 def test_encode_snapshots_errors_are_explicit():
     with pytest.raises(ValueError, match="empty"):
         encode_snapshots(_apply_fn, {"scale": jnp.asarray(1.0)}, np.ones((0, 2, 2), dtype=np.float32))

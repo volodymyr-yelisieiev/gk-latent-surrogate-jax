@@ -784,7 +784,17 @@ def _direct_trajectory_paths(root: str | Path, config: CycloneKvikIOConfig) -> t
         paths = tuple(_format_direct_trajectory_path(root_path, item, config) for item in config.trajectories)
     else:
         try:
-            paths = tuple(sorted(path for path in root_path.iterdir() if path.is_dir()))
+            # The protocol manifests use portable trajectory IDs (the directory
+            # name with the IFFT suffix removed) as their canonical order.  A
+            # plain ``sorted(Path)`` orders ``iteration_148`` before
+            # ``iteration_14`` because of the suffix, which silently changes
+            # the ordered universe hash and invalidates fold pairing.
+            paths = tuple(
+                sorted(
+                    (path for path in root_path.iterdir() if path.is_dir()),
+                    key=lambda path: (_direct_portable_id(path.name), path.name),
+                )
+            )
         except OSError:
             return ()
     return tuple(
@@ -792,6 +802,15 @@ def _direct_trajectory_paths(root: str | Path, config: CycloneKvikIOConfig) -> t
         for path in paths
         if (path / "metadata.pkl").exists() and (path / "data").is_dir() and _has_direct_float32_shards(path)
     )
+
+
+def _direct_portable_id(name: str) -> str:
+    """Return the manifest identifier for a direct Cyclone directory name."""
+
+    for suffix in ("_ifft_realpotens", "_ifft"):
+        if name.endswith(suffix):
+            return name[: -len(suffix)]
+    return name
 
 
 def _has_direct_float32_shards(path: Path) -> bool:
@@ -812,10 +831,12 @@ def _format_direct_trajectory_path(root: Path, trajectory: str, config: CycloneK
 
 
 def _read_direct_metadata(path: Path) -> Mapping[str, Any]:
-    with (path / "metadata.pkl").open("rb") as handle:
+    light_path = path / "metadata_light.pkl"
+    metadata_path = light_path if light_path.is_file() else path / "metadata.pkl"
+    with metadata_path.open("rb") as handle:
         metadata = pickle.load(handle)
     if not isinstance(metadata, Mapping):
-        msg = f"Cyclone metadata must be a mapping: {path / 'metadata.pkl'}"
+        msg = f"Cyclone metadata must be a mapping: {metadata_path}"
         raise TypeError(msg)
     if "fluxes" not in metadata and "flux" in metadata and isinstance(metadata, MutableMapping):
         metadata["fluxes"] = metadata["flux"]

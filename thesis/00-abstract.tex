@@ -1,57 +1,67 @@
 \cleardoubleoddpage
 \begin{otherlanguage}{english}
 \begin{abstract*}
-Nonlinear gyrokinetic simulations evolve high-dimensional distribution functions and are
-computationally demanding. This thesis investigates whether a compact latent surrogate can predict
-short-horizon dynamics while retaining information needed for turbulent-transport diagnostics. A
-GPU-first pipeline is implemented in JAX and Flax for channel-first five-dimensional snapshots. A
-convolutional encoder maps each snapshot to a 128-dimensional latent vector and is trained with a
-SimSiam-style consistency objective plus supervised heads for scalar flux and two one-dimensional
-spectra. Persistence, gated recurrent unit, and causal Transformer models then predict future
-latents from an eight-step context.
+Gyrokinetic plasma-turbulence simulations are computationally demanding. This thesis tests a
+compact latent surrogate for eight-step forecasts of scalar flux and two one-dimensional spectra. A
+JAX/Flax pipeline encodes preprocessed snapshots as 128-dimensional states; gated recurrent unit
+(GRU) and causal Transformer models roll them forward through frozen diagnostic heads.
 
-A data-integrity audit found that an earlier comparison used inconsistent trajectory-split seeds
-between representation learning and downstream evaluation; those numbers were withdrawn. The
-corrected protocol fixes seed 52 throughout, selects the learned model on five validation
-trajectories, and evaluates it once on five untouched test trajectories. The cache-normalized
-Transformer was the best learned validation candidate. On the locked eight-step test, its flux root
-mean squared error is 11.4255, compared with 11.9889 for persistence, a 4.70\% reduction in the
-primary point estimate. It also reduces latent mean squared error and flux mean absolute error.
-Per-trajectory flux RMSE improves in three of five cases, while a descriptive paired 95\% interval
-includes zero; the small sample therefore does not support a significance claim. The work
-weights rollout aggregates equally by trajectory, and every accepted artifact is bound to an
-auditable split manifest. It
-therefore contributes a reproducible, leakage-resistant latent-surrogate pipeline and bounded
-evidence of short-horizon improvement; it does not establish full-field reconstruction, long-horizon accuracy, or a
-direct numerical advantage over GyroSwin.
+The study evaluates 51 trajectories by retrospective five-fold nested group cross-validation with
+matched training seeds 52, 53, 54, 55, and 56; it is not a pristine locked-test result. Inner
+validation selected Transformer in outer folds 0, 1, and 3 and GRU in folds 2 and 4. The selected
+learned models achieved flux root mean squared error (RMSE) 14.6729, versus 10.0207 for copying the
+last observed flux across the horizon. The difference was +4.6522 with paired hierarchical-bootstrap
+interval [+2.5788, +6.6470]; learned error was lower in 31.6\% of hierarchically weighted paired
+runs. The strictly positive interval supports a bounded negative result: the learned models do not
+beat observed persistence.
+
+Holding the last latent state fixed and decoding it gave flux RMSE 14.8049. Learned latent mean
+squared error (MSE) was 0.4497 versus 0.4307 for latent persistence, a difference of +0.0189 with
+interval [-0.0699, +0.1332]. Because this interval includes zero, no latent-dynamics advantage is
+established. A diagnostic-head oracle given true future latents reached flux RMSE 12.3732, showing
+usable diagnostic information but insufficient accuracy relative to observed persistence; it
+isolates no single causal bottleneck.
+
+The contribution is an auditable workflow, not a positive performance claim. Its scope is this
+universe, preprocessing, and horizon; it establishes no full-field or long-horizon accuracy,
+physical-unit or solver-level performance, broad generalization, a matched numerical comparison with
+GyroSwin, or a universal architecture winner.
 \end{abstract*}
 \end{otherlanguage}
 
 \cleardoubleoddpage
 \begin{otherlanguage}{ngerman}
 \begin{abstract*}
-Nichtlineare gyrokinetische Simulationen entwickeln hochdimensionale Verteilungsfunktionen und sind
-rechnerisch aufwendig. Diese Arbeit untersucht, ob ein kompaktes latentes Ersatzmodell kurzfristige
-Dynamik vorhersagen und zugleich Informationen für Diagnosen des turbulenten Transports erhalten
-kann. Dazu wird eine GPU-orientierte Pipeline in JAX und Flax für kanalorientierte
-fünfdimensionale Momentaufnahmen implementiert. Ein konvolutioneller Encoder bildet jede
-Momentaufnahme auf einen 128-dimensionalen latenten Vektor ab und wird mit einem
-SimSiam-Konsistenzziel sowie überwachten Köpfen für skalaren Fluss und zwei eindimensionale Spektren
-trainiert. Persistenz-, GRU- und kausale Transformer-Modelle sagen anschließend aus acht
-Kontextschritten zukünftige latente Zustände voraus.
+Gyrokinetische Simulationen von Plasmaturbulenz sind rechenintensiv. Diese Arbeit untersucht,
+ob ein kompaktes latentes Ersatzmodell den skalaren Fluss und zwei eindimensionale Spektren über
+acht Schritte vorhersagen kann. Eine JAX/Flax-Pipeline kodiert vorverarbeitete Momentaufnahmen als
+128-dimensionale Zustände; GRU-Modelle (Gated Recurrent Units) und kausale Transformer-Modelle sagen
+deren zeitliche Entwicklung voraus, und eingefrorene Diagnoseköpfe dekodieren die Zielgrößen.
 
-Eine Datenintegritätsprüfung zeigte, dass ein früherer Vergleich unterschiedliche Seeds für die
-Trajektorienaufteilung verwendete; diese Zahlen wurden zurückgezogen. Das korrigierte Protokoll
-verwendet durchgehend Seed 52, wählt das gelernte Modell auf fünf Validierungstrajektorien und
-wertet es einmalig auf fünf unberührten Testtrajektorien aus. Der cache-normalisierte Transformer
-war der beste gelernte Validierungskandidat und erreicht im gesperrten Acht-Schritt-Test einen
-Fluss-RMSE von 11,4255 gegenüber 11,9889 für Persistenz. Dies entspricht einer Verringerung des
-primären Punktschätzers um 4,70\,\%. Der Fluss-RMSE verbessert sich in drei von fünf einzelnen
-Testtrajektorien; ein deskriptives gepaartes 95\,\%-Intervall schließt jedoch null ein, weshalb keine
-Signifikanz behauptet wird. Der Beitrag umfasst eine nach Trajektorien gleich gewichtete Auswertung,
-eine überprüfbare Zuordnung jedes akzeptierten Artefakts zur Datenaufteilung sowie eine
-reproduzierbare, gegen Datenleckage abgesicherte Pipeline mit klar begrenzter empirischer Evidenz;
-vollständige Feldrekonstruktion, Langzeitgenauigkeit und ein direkter numerischer Vorteil
-gegenüber GyroSwin werden nicht behauptet.
+Die Studie wertet 51 Trajektorien mittels retrospektiver fünffacher verschachtelter
+Gruppen-Kreuzvalidierung mit denselben Trainings-Seeds 52, 53, 54, 55 und 56 aus; sie ist kein
+Ergebnis einer bis zur Auswertung unangetasteten Testmenge. Die innere Validierung wählte den
+Transformer in den äußeren Falten 0, 1 und 3 und das GRU-Modell in den Falten 2 und 4. Die
+ausgewählten gelernten Modelle erreichten einen Fluss-RMSE (Wurzel des mittleren quadratischen
+Fehlers) von 14.6729, während das Fortschreiben des letzten beobachteten Flusswerts über den
+Horizont 10.0207 ergab. Die Differenz betrug +4.6522; das gepaarte hierarchische Bootstrap-Intervall
+war [+2.5788, +6.6470]. In 31.6\% der hierarchisch gewichteten gepaarten Läufe war der Fehler des
+gelernten Modells geringer. Das strikt positive Intervall stützt einen klar begrenzten negativen
+Befund: Die gelernten Modelle übertreffen die beobachtete Persistenz nicht.
+
+Das Festhalten am letzten latenten Zustand ergab nach der Dekodierung einen Fluss-RMSE von
+14.8049. Der mittlere quadratische Fehler (MSE) im latenten Raum betrug 0.4497 für die gelernten
+Modelle und 0.4307 für die latente Persistenz, entsprechend einer Differenz von +0.0189 mit dem
+Intervall [-0.0699, +0.1332]. Da dieses Intervall Null einschließt, ist kein Vorteil der gelernten
+latenten Dynamik belegt. Eine Oracle-Auswertung, bei der der Diagnosekopf die wahren zukünftigen
+latenten Zustände erhielt, erreichte einen Fluss-RMSE von 12.3732. Dies zeigt, dass die Repräsentation
+nutzbare diagnostische Informationen enthält, gegenüber der beobachteten Persistenz aber nicht genau
+genug ist; einen einzelnen kausalen Engpass isoliert die Oracle-Auswertung nicht.
+
+Der Beitrag liegt in einem überprüfbaren Arbeitsablauf, nicht in einem positiven Leistungsnachweis.
+Seine Aussagekraft ist auf dieses Universum, diese Vorverarbeitung und diesen Horizont begrenzt; er
+belegt weder vollständige Feld- oder Langzeitgenauigkeit noch Genauigkeit in physikalischen
+Einheiten, Solver-Leistung, breite Verallgemeinerung, einen abgestimmten numerischen Vergleich mit
+GyroSwin oder die allgemeingültige Überlegenheit einer Architektur.
 \end{abstract*}
 \end{otherlanguage}

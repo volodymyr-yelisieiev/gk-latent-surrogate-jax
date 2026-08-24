@@ -8,55 +8,60 @@ within three sentences.
 \begin{enumerate}
   \item \textbf{What is the central question?}
 
-  Can a compact JAX/Flax latent surrogate learn short-horizon dynamics from preprocessed
-  five-dimensional gyrokinetic snapshots, and can a learned sequence model improve flux-predictive
-  rollout RMSE over persistence on unseen trajectories?
+  Can a compact JAX/Flax latent surrogate learn short-horizon gyrokinetic dynamics and improve
+  flux-predictive rollouts over direct persistence of the observed flux on held-out outer-fold
+  trajectories?
 
   \item \textbf{Why is this question important?}
 
-  Nonlinear gyrokinetic simulations are computationally expensive because they evolve a
-  five-dimensional distribution function. A compact diagnostic-preserving state could make
-  temporal modelling cheaper without claiming complete field reconstruction.
+  Nonlinear gyrokinetic simulations are expensive because they evolve a five-dimensional
+  distribution function. A compact diagnostic-preserving state could make short temporal studies
+  cheaper, but only if it beats a strong and physically meaningful persistence reference.
 
-  \item \textbf{What evidence/data (variables) are needed to answer this question?}
+  \item \textbf{What evidence/data (variables) are needed to answer the question?}
 
-  The evidence consists of time-ordered five-dimensional snapshots, scalar flux, two
-  one-dimensional spectra, trajectory identifiers, and held-out rollout windows. Encoder, cache,
-  split seed, context, horizon, model-selection rule, and aggregation metadata must also match.
+  The evidence is a manifest-/byte-verified universe of 51 trajectories with time-ordered snapshots,
+  scalar flux, two one-dimensional spectra, trajectory identifiers, and eight-step rollout windows.
+  Split manifests, normalization scope, context, horizon, model-selection rule, and artifact hashes
+  are part of the evidence rather than optional metadata.
 
   \item \textbf{What methods are used to get this evidence/data?}
 
-  A Cyclone/KvikIO adapter validates a channel-first tensor contract, and a convolutional encoder
-  trained with SimSiam and diagnostic losses produces 128-dimensional latents. Sequence windows are
-  split by trajectory, and artifact lineage is checked before training or evaluation.
+  A Cyclone/KvikIO adapter validates a channel-first five-dimensional tensor contract, and a
+  convolutional encoder with SimSiam and diagnostic objectives produces 128-dimensional latents.
+  GRU and causal Transformer sequence models are trained from cached windows, with persistence and
+  a frozen diagnostic-head oracle as controls.
 
   \item \textbf{What analyses must be applied to the data to answer the central question?}
 
-  Persistence, GRU, and Transformer candidates are evaluated on validation, where the learned model
-  is selected by flux RMSE. Only that fixed candidate and persistence are then rolled out for eight
-  steps on the locked test trajectories with trajectory-balanced metrics.
+  Five outer group folds and five matched training seeds are evaluated retrospectively, with
+  checkpoint selection by validation latent RMSE and family selection by validation flux RMSE only.
+  The primary analysis pairs the selected model with observed-flux persistence and uses a
+  hierarchical bootstrap over folds, seeds, and trajectories.
 
   \item \textbf{What evidence/data (values for the variables) were obtained?}
 
-  The medium cache contains 51 trajectories and 1,173 latent vectors, split 41/5/5 into
-  train/validation/test with seed 52. The locked test contains 40 eight-step windows from five
-  trajectories that were not used for encoder or sequence training.
+  The accepted ledger contains 230 slots (225 finite, stable metric stages and five selection
+  barriers) and 25 explicitly skipped unselected-family test stages. The selected family is Transformer in folds 0, 1, and 3 and GRU
+  in folds 2 and 4; every selection record states that test evidence was not opened.
 
   \item \textbf{What were the results of the analyses?}
 
-  The validation-selected cache-normalized Transformer obtains test flux RMSE 11.4255 and latent
-  MSE 0.0738. Persistence obtains flux RMSE 11.9889 and latent MSE 0.1019; the Transformer improves
-  per-trajectory flux RMSE in three of five cases.
+  Selected learned flux RMSE is 14.6729 versus 10.0207 for observed persistence, giving a difference
+  of +4.6522 with bootstrap interval [+2.5788, +6.6470]. Decoded latent persistence is 14.8049,
+  while the diagnostic-head oracle is 12.3732; the learned-minus-latent latent-MSE difference is
+  +0.0189 with interval [-0.0699, +0.1332].
 
   \item \textbf{How did the analyses answer the central question?}
 
-  The learned model lowers the predeclared primary flux-RMSE point estimate by 4.70\% over
-  persistence. The answer is positive for this fixed dataset subset, representation, training
-  budget, and horizon, but the paired interval includes zero and does not establish significance.
+  The learned model does not improve the observed diagnostic baseline in this retrospective nested
+  cross-validation estimate. The positive interval and fold-wise positive differences support a
+  bounded negative result, not a claim that all latent surrogates fail.
 
   \item \textbf{What does this answer tell us about the broader field?}
 
-  Complex latent dynamics should not be assumed to beat a strong persistence baseline, especially
-  for slowly changing states. Strict split lineage, validation-only selection, and honest reporting
-  of bounded results are necessary before drawing broader conclusions about neural surrogates.
+  A complex temporal architecture should not be assumed to beat persistence when the target varies
+  slowly and the representation-to-diagnostic path is lossy. The broader lesson is methodological:
+  split lineage, validation-only selection, matched seeds, and transparent negative reporting are
+  prerequisites for a defensible surrogate claim.
 \end{enumerate}

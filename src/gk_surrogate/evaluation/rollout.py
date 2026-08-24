@@ -71,8 +71,31 @@ def autoregressive_rollout(
 
 
 def persistence_rollout(z_initial_context: Array, rollout_steps: int) -> Array:
+    """Repeat the last latent state.
+
+    Diagnostic metrics computed from this rollout pass the repeated latent through
+    the frozen diagnostic head.  This is therefore a latent-state persistence
+    baseline, not persistence of an observed diagnostic such as flux.
+    """
     last = jnp.asarray(z_initial_context)[:, -1:, :]
     return jnp.repeat(last, rollout_steps, axis=1)
+
+
+def observed_diagnostic_persistence(last_observed: Array, rollout_steps: int) -> Array:
+    """Repeat the last observed diagnostic over the forecast horizon.
+
+    ``last_observed`` may have shape ``[B, D]`` or ``[B, 1, D]``.  Unlike
+    :func:`persistence_rollout`, this reference does not use a latent encoder or
+    diagnostic head.
+    """
+    if rollout_steps < 1:
+        raise ValueError("rollout_steps must be positive")
+    observed = jnp.asarray(last_observed)
+    if observed.ndim == 2:
+        observed = observed[:, None, :]
+    if observed.ndim != 3 or observed.shape[1] != 1:
+        raise ValueError(f"last_observed must have shape [B, D] or [B, 1, D], got {observed.shape}")
+    return jnp.repeat(observed, rollout_steps, axis=1)
 
 
 def latent_rollout_metrics(pred: Array, target: Array, eps: float = 1e-8) -> dict[str, Array]:
@@ -156,6 +179,7 @@ def trajectory_balanced_rollout_metrics(
     result: dict[str, Array] = {}
     for key in ("mse", "mae", "relative_l2", "cosine"):
         values = jnp.stack([metrics[f"{key}_by_step"] for metrics in per_trajectory])
+        result[f"{key}_by_trajectory"] = jnp.mean(values, axis=1)
         result[f"{key}_by_step"] = jnp.mean(values, axis=0)
         result[f"{key}_std_by_step"] = jnp.std(values, axis=0)
         result[key] = jnp.mean(result[f"{key}_by_step"])

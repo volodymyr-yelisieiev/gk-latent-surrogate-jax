@@ -18,6 +18,7 @@ from gk_surrogate.pipeline import (
     evaluate_flux_head,
     evaluate_rollout,
     plot_representation,
+    train_direct_diagnostics,
     train_encoder,
     train_sequence,
 )
@@ -39,6 +40,7 @@ def _build_parser() -> argparse.ArgumentParser:
     for command in (
         "inspect-data",
         "train-encoder",
+        "train-direct-diagnostics",
         "embed-dataset",
         "train-sequence",
         "evaluate-flux-head",
@@ -78,6 +80,8 @@ def _add_common_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--override", action="append", default=[], help="Dotted key override, key=value.")
     parser.add_argument("--dry-run", action="store_true", help="Validate and inspect without training writes.")
     parser.add_argument("--seed", type=int, default=None, help="Override data and training seed.")
+    parser.add_argument("--training-seed", type=int, default=None, help="Override only the training seed.")
+    parser.add_argument("--split-manifest", default=None, help="Exact train/val/test trajectory manifest.")
     parser.add_argument("--output-dir", default=None, help="Override output directory.")
 
 
@@ -85,6 +89,10 @@ def _dispatch(args: argparse.Namespace) -> int:
     overrides = list(args.override)
     if args.seed is not None:
         overrides.extend([f"data.seed={args.seed}", f"training.seed={args.seed}"])
+    if args.training_seed is not None:
+        overrides.append(f"training.seed={args.training_seed}")
+    if args.split_manifest is not None:
+        overrides.append(f"data.split_manifest={args.split_manifest}")
     if args.output_dir is not None:
         overrides.append(f"output_dir={args.output_dir}")
         if args.command == "embed-dataset":
@@ -147,6 +155,9 @@ def _dispatch(args: argparse.Namespace) -> int:
 
     if args.command == "train-encoder":
         console.print(train_encoder(config, dry_run=args.dry_run))
+        return 0
+    if args.command == "train-direct-diagnostics":
+        console.print(train_direct_diagnostics(config, dry_run=args.dry_run))
         return 0
     if args.command == "embed-dataset":
         console.print(embed_dataset(config, dry_run=args.dry_run))

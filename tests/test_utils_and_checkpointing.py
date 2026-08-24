@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import builtins
+import csv
 import hashlib
 import json
 import pickle
@@ -15,7 +16,7 @@ import pytest
 
 from gk_surrogate.training import logging as logging_module
 from gk_surrogate.training.checkpointing import latest_checkpoint, load_checkpoint, restore_train_state, save_checkpoint
-from gk_surrogate.training.logging import MetricsLogger, collect_git_info
+from gk_surrogate.training.logging import MetricsLogger, append_csv, collect_git_info
 from gk_surrogate.training.rng import PRNGSequence, fold_in_rng, make_rng, split_rng
 from gk_surrogate.training.state import TrainState
 from gk_surrogate.utils.arrays import as_float32, assert_rank, ensure_finite_tree, mean_squared_error, to_numpy
@@ -70,6 +71,49 @@ def test_utils_training_state_checkpoint_and_logging(tmp_path):
     assert collect_git_info(tmp_path)["git_available"] in {True, False}
 
 
+def test_append_csv_keeps_rectangular_union_schema(tmp_path):
+    path = tmp_path / "metrics.csv"
+    append_csv(path, {"step": 1, "train/loss": 0.5})
+    append_csv(path, {"step": 2, "validation/loss": 0.4, "flux_rmse": 1.2})
+
+    with path.open(newline="", encoding="utf-8") as handle:
+        reader = csv.DictReader(handle)
+        rows = list(reader)
+
+    assert reader.fieldnames == ["step", "train/loss", "validation/loss", "flux_rmse"]
+    assert all(None not in row for row in rows)
+    assert rows[0]["validation/loss"] == ""
+
+
+def test_append_csv_rejects_malformed_inputs_and_cleans_atomic_temp_files(tmp_path, monkeypatch):
+    with pytest.raises(ValueError, match="at least one field"):
+        append_csv(tmp_path / "empty.csv", {})
+
+    no_header = tmp_path / "no_header.csv"
+    no_header.write_text("\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="no header"):
+        append_csv(no_header, {"value": 1})
+
+    duplicate_header = tmp_path / "duplicate.csv"
+    duplicate_header.write_text("value,value\n1,2\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="duplicate header"):
+        append_csv(duplicate_header, {"value": 3})
+
+    malformed_row = tmp_path / "malformed.csv"
+    malformed_row.write_text("value,other\n1\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="malformed CSV row"):
+        append_csv(malformed_row, {"value": 3})
+
+    def fail_replace(*_args, **_kwargs):
+        raise OSError("simulated atomic replace failure")
+
+    atomic_path = tmp_path / "atomic.csv"
+    monkeypatch.setattr(logging_module.os, "replace", fail_replace)
+    with pytest.raises(OSError, match="atomic replace failure"):
+        append_csv(atomic_path, {"value": 1})
+    assert not list(tmp_path.glob(".atomic.csv.*"))
+
+
 def test_collect_git_info_records_exact_patch_hash_and_untracked_paths(tmp_path):
     subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
     subprocess.run(["git", "config", "user.email", "test@example.invalid"], cwd=tmp_path, check=True)
@@ -118,7 +162,11 @@ def test_metrics_logger_disabled_wandb_does_not_import(tmp_path, monkeypatch):
     logger.log({"step": 1, "loss": 1.0}, prefix="train")
     logger.write_summary({"loss": 1.0})
     assert logger.wandb_status() == {"enabled": False, "requested": False, "mode": "disabled"}
-    assert not (tmp_path / "disabled" / "wandb_status.json").exists()
+    assert json.loads((tmp_path / "disabled" / "wandb_status.json").read_text(encoding="utf-8")) == {
+        "enabled": False,
+        "mode": "disabled",
+        "requested": False,
+    }
 
 
 def test_metrics_logger_uses_optional_wandb_when_enabled(tmp_path, monkeypatch):

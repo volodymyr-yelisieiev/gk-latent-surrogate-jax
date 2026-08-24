@@ -1,0 +1,71 @@
+{
+  "$schema": "./protocol.schema.json",
+  "schema_version": "1.0.0",
+  "protocol_id": "multiseed-v1",
+  "status": "frozen",
+  "created_before_runs": true,
+  "source": {
+    "repository": "https://github.com/volodymyr-yelisieiev/gk-latent-surrogate-jax",
+    "commit": null,
+    "tag": "protocol/multiseed-v1",
+    "tracked_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "data": {
+    "dataset_revision": "cyclone-consumed-bytes-sha256:ff2867e9eb8e9ed74dd1ed92d347b02a703368e634f86cce983c07b0754e3d7a",
+    "universe_manifest_sha256": "96c85a70119ca790ef46ba6ccbee1f75e2b37a400eed48b900194650ef35c68e",
+    "development_split_seed": 52,
+    "normalization_fit_split": "train_only",
+    "evaluation_route": "nested_group_holdout_cross_validation",
+    "final_test_rule": {
+      "minimum_unseen_trajectories": 10,
+      "manifest_sha256": null,
+      "opened_at_utc": null
+    },
+    "fallback_rule": {
+      "method": "nested_group_holdout_cross_validation",
+      "outer_folds": 5,
+      "outer_fold_manifest_sha256": "da5d95b87985e5fb6c32c880d15627aa17eccd3d262c61f723d1044cef34ff87",
+      "selection_scope": "inner_validation_only",
+      "test_language": "retrospective_cross_validation"
+    }
+  },
+  "models": {
+    "families": ["observed_diagnostic_persistence", "latent_state_persistence_decoded", "gru", "transformer"],
+    "training_seeds": [52, 53, 54, 55, 56],
+    "matched_seed_policy": "same_training_seeds_and_data_rules_for_all_learned_models"
+  },
+  "selection": {
+    "split": "validation",
+    "primary_metric": "trajectory_balanced_flux_rmse",
+    "checkpoint_rule": "lowest_validation_trajectory_balanced_latent_rmse",
+    "architecture_rule": "within_each_outer_fold_lowest_mean_inner_validation_primary_metric_over_all_matched_training_seeds",
+    "architecture_aggregation": "arithmetic_mean_over_matched_training_seeds_within_outer_fold",
+    "test_used_for_selection": false
+  },
+  "evaluation": {
+    "baseline_modes": ["latent_state_persistence_decoded", "observed_diagnostic_persistence"],
+    "analysis_controls": ["diagnostic_head_oracle"],
+    "primary_estimand": "paired_selected_model_minus_observed_diagnostic_persistence_per_trajectory_flux_rmse_mean_over_outer_folds_seeds_and_trajectories",
+    "secondary_estimand": "paired_selected_model_minus_latent_state_persistence_decoded_per_trajectory_latent_mse_mean_over_outer_folds_seeds_and_trajectories",
+    "metric_availability": {
+      "observed_diagnostic_persistence": ["flux", "spectra"],
+      "latent_state_persistence_decoded": ["latent", "flux", "spectra"],
+      "diagnostic_head_oracle": ["flux", "spectra"]
+    },
+    "uncertainty": "paired_hierarchical_bootstrap_over_training_seeds_and_trajectories",
+    "secondary_metrics": [
+      "headline_sqrt_mean_trajectory_mse",
+      "flux_mae",
+      "latent_mse",
+      "per_target_spectra_relative_l2",
+      "per_target_spectra_shape_correlation"
+    ],
+    "units": "preprocessed_target_units_unless_physical_units_are_verified"
+  },
+  "reporting": {
+    "negative_result_rule": "if_the_interval_includes_zero_report_no_convincing_advantage",
+    "spectra_rule": "report_targets_separately_and_do_not_infer_fidelity_from_aggregate_relative_l2",
+    "invalidated_run_rule": "retain_with_reason_and_exclude_from_accepted_comparison"
+  },
+  "accepted_runs": []
+}

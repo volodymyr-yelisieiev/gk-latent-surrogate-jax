@@ -1,18 +1,26 @@
 from __future__ import annotations
 
 import csv
+from pathlib import Path
 
 import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from gk_surrogate.evaluation.reports import save_metrics_by_step, save_metrics_json
+from gk_surrogate.evaluation.reports import (
+    _jsonable,
+    save_basic_rollout_plot,
+    save_metrics_by_step,
+    save_metrics_json,
+    save_rollout_plots,
+)
 from gk_surrogate.evaluation.rollout import (
     autoregressive_rollout,
     evaluate_rollout_batches,
     horizon_until_threshold,
     latent_rollout_metrics,
+    observed_diagnostic_persistence,
     persistence_rollout,
     trajectory_balanced_rollout_metrics,
 )
@@ -28,6 +36,15 @@ def test_evaluation_rollout_helpers_and_reports(tmp_path):
     rollout = autoregressive_rollout(apply_fn, {}, context, 2)
     assert rollout.shape == (2, 2, 4)
     persisted = persistence_rollout(context, 2)
+    observed = observed_diagnostic_persistence(jnp.asarray([[2.0, 3.0], [4.0, 5.0]]), 2)
+    np.testing.assert_allclose(
+        np.asarray(observed),
+        [[[2.0, 3.0], [2.0, 3.0]], [[4.0, 5.0], [4.0, 5.0]]],
+    )
+    with pytest.raises(ValueError, match="positive"):
+        observed_diagnostic_persistence(jnp.ones((1, 1)), 0)
+    with pytest.raises(ValueError, match="shape"):
+        observed_diagnostic_persistence(jnp.ones((1, 2, 1)), 2)
     metrics = latent_rollout_metrics(persisted, jnp.ones((2, 2, 4)))
     assert metrics["stable"]
     assert horizon_until_threshold(metrics["mse_by_step"], 0.5) == 1
@@ -97,3 +114,16 @@ def test_rollout_cosine_is_stable_for_zero_and_small_vectors():
     zero_metrics = latent_rollout_metrics(zeros, zeros)
     assert float(zero_metrics["cosine"]) == pytest.approx(0.0)
     assert np.isfinite(float(zero_metrics["cosine"]))
+
+
+def test_report_serialization_and_baseline_plot_contract(tmp_path):
+    assert _jsonable(Path("metrics.json")) == "metrics.json"
+    assert _jsonable({"value": np.float32(1.5)}) == {"value": 1.5}
+    assert _jsonable(np.asarray([1, 2])) == [1, 2]
+    with pytest.raises(ValueError, match="no one-dimensional"):
+        save_metrics_by_step({"scalar": np.asarray(1.0)}, tmp_path / "empty")
+
+    plots = save_rollout_plots({"flux_mse_by_step": np.asarray([1.0, 0.5])}, tmp_path / "plots")
+    assert set(plots) == {"flux_mse"}
+    assert plots["flux_mse"].exists()
+    assert save_basic_rollout_plot({"flux_mse_by_step": np.asarray([1.0])}, tmp_path / "basic") is None

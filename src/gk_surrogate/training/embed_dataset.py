@@ -13,13 +13,7 @@ from jax import Array
 
 def _call_encoder(apply_fn: Any, params: Any, x: Array, *, train: bool = False) -> Any:
     variables = {"params": params}
-    try:
-        return apply_fn(variables, x, train=train)
-    except TypeError:
-        try:
-            return apply_fn(variables, x)
-        except TypeError:
-            return apply_fn(params, x)
+    return apply_fn(variables, x, train=train)
 
 
 def _latent_from_output(output: Any) -> Array:

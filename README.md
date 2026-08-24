@@ -30,18 +30,20 @@ runtime dependency are outside the implemented scope.
 
 ## Result status
 
-The previous medium-comparison table has been withdrawn: encoder/cache and downstream
-evaluation used different trajectory-split seeds, and fitted normalization was not
-consistently restricted to training trajectories. Those values are not accepted as thesis
-evidence.
+The accepted thesis evidence is the retrospective five-fold nested group cross-validation release
+in `experiment_protocols/multiseed_v1_results.json`. It covers 51 manifest-/byte-verified
+trajectories, five matched training seeds, 230 accepted ledger slots (225 metric stages and five
+selection barriers), and 25 explicitly skipped
+unselected-family test stages. The selected family is Transformer in folds 0, 1, and 3 and GRU in
+folds 2 and 4; it is not a global architecture ranking.
 
-The corrected comparison uses split seed 52 throughout, fits cache normalization on the
-training split, selects the learned candidate on validation, and opens the test split once
-for that candidate and persistence. The selected cache-normalized Transformer improves
-the primary locked-test flux RMSE (`11.425478` versus `11.988926`, a `4.70%` reduction).
-The paired five-trajectory interval still includes zero, so this is evidence for this
-fixed protocol rather than a significance or general-equivalence claim. Detailed evidence is recorded in
-`docs/medium_guppy_experiment_report.md` and `docs/final_claims.md`.
+The primary selected-model flux RMSE is `14.6729`, versus `10.0207` for direct observed-flux
+persistence. The learned-minus-observed difference is `+4.6522` with a hierarchical bootstrap
+95% interval `[+2.5788, +6.6470]`, so the result is a defensible negative finding: no learned-model
+advantage is claimed. Decoded latent persistence is `14.8049`, the diagnostic-head oracle is
+`12.3732`, and the secondary latent-MSE difference is `+0.0189` with interval `[-0.0699, +0.1332]`.
+W&B is disabled and verified locally for all 225 accepted metric stages; no live run URL is claimed. See
+`docs/result_status.md` and `docs/experiment_provenance.md` for the evidence contract.
 
 ## Installation and verification
 
@@ -62,21 +64,24 @@ data nor GPU hardware. Its artifacts are written under ignored `outputs/smoke_*`
 ```bash
 gks inspect-data --config configs/data/tiny_dummy.yaml
 gks train-encoder --config configs/experiment/smoke_encoder_supervised.yaml
+gks train-direct-diagnostics --config configs/experiment/smoke_encoder_supervised.yaml
 gks embed-dataset --config configs/experiment/smoke_embed_dataset.yaml
 gks evaluate-flux-head --config configs/experiment/smoke_evaluate_flux_head.yaml
 gks plot-representation --config configs/experiment/smoke_plot_representation.yaml
 gks train-sequence --config configs/experiment/smoke_sequence.yaml
 gks evaluate-rollout --config configs/experiment/smoke_evaluate_rollout.yaml
+gks-protocol --protocol experiment_protocols/multiseed_v1.json
 ```
 
-All commands support resolved configuration validation through `--dry-run`, targeted
-configuration overrides, deterministic seeds, and explicit output directories.
+Pipeline commands support resolved configuration validation through `--dry-run`, targeted
+configuration overrides, deterministic seeds, and explicit output directories. The fail-closed
+`gks-protocol` entrypoint performs the equivalent preflight before `--execute`.
 
 ## Reproducibility
 
 - `configs/` contains portable smoke and server-oriented experiment definitions.
 - `docs/data_contract.md` and `docs/metrics.md` define data and metric semantics.
-- `docs/thesis_result_set.md` separates engineering, validation, and medium-scale evidence.
+- `docs/result_status.md` separates engineering smoke output from thesis-facing evidence.
 - `CONTRIBUTING.md` defines provenance, commit, pull-request, and merge conventions.
 
 Raw data, generated HDF5/NPZ files, latent caches, checkpoints, W&B state, package

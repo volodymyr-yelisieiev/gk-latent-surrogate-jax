@@ -11,7 +11,6 @@ data:
   prediction_length: 1
   batch_size: 2
   shuffle: false
-  num_workers: 0
   seed: 42
   normalization:
     mode: dataset
@@ -53,8 +52,6 @@ training:
   log_every: 1
   eval_every: 1
   checkpoint_every: 1
-  dtype: float32
-  jit: true
   seed: 42
 loss:
   simsiam_weight: 0.0
@@ -66,10 +63,8 @@ loss:
   latent_loss: mse
 evaluation:
   rollout_steps: 4
-  batch_size: 2
   metrics: [latent_mse, flux_mse, spectra_mse]
 latent_cache:
   path: outputs/smoke_embed_dataset/latent_cache.h5
   encoder_checkpoint_path: outputs/smoke_encoder_supervised/checkpoints/step_000005
   sequence_checkpoint_path: outputs/smoke_sequence/checkpoints/step_000005
-  use_persistence_baseline: false

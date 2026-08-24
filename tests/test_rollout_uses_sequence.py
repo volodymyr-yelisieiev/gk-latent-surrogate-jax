@@ -29,7 +29,9 @@ def test_evaluate_rollout_uses_sequence_checkpoint_not_persistence(repo_root, tm
     seq_cfg = seq_cfg.model_copy(
         update={
             "output_dir": str(tmp_path / "seq"),
-            "latent_cache": seq_cfg.latent_cache.model_copy(update={"path": embedded["latent_cache"]}),
+            "latent_cache": seq_cfg.latent_cache.model_copy(
+                update={"path": embedded["latent_cache"], "encoder_checkpoint_path": enc["checkpoint"]}
+            ),
         }
     )
     seq = train_sequence(seq_cfg)
@@ -46,8 +48,8 @@ def test_evaluate_rollout_uses_sequence_checkpoint_not_persistence(repo_root, tm
             "latent_cache": eval_cfg.latent_cache.model_copy(
                 update={
                     "path": embedded["latent_cache"],
+                    "encoder_checkpoint_path": enc["checkpoint"],
                     "sequence_checkpoint_path": seq["checkpoint"],
-                    "use_persistence_baseline": False,
                 }
             ),
         }

@@ -1,0 +1,296 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/volodymyr-yelisieiev/gk-latent-surrogate-jax/blob/main/experiment_protocols/protocol.schema.json",
+  "title": "GK latent-surrogate experiment protocol",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "protocol_id",
+    "status",
+    "created_before_runs",
+    "source",
+    "data",
+    "models",
+    "selection",
+    "evaluation",
+    "reporting",
+    "accepted_runs"
+  ],
+  "properties": {
+    "schema_version": {"const": "1.0.0"},
+    "protocol_id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]+$"},
+    "status": {"enum": ["planned", "frozen", "completed", "invalidated"]},
+    "created_before_runs": {"type": "boolean"},
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository", "commit", "tag", "tracked_diff_sha256"],
+      "properties": {
+        "repository": {"type": "string", "format": "uri"},
+        "commit": {"type": ["string", "null"], "pattern": "^[0-9a-f]{40}$"},
+        "tag": {
+          "type": ["string", "null"],
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._/-]*$",
+          "minLength": 1
+        },
+        "tracked_diff_sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"}
+      }
+    },
+    "data": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "dataset_revision",
+        "universe_manifest_sha256",
+        "development_split_seed",
+        "final_test_rule",
+        "fallback_rule",
+        "normalization_fit_split",
+        "evaluation_route"
+      ],
+      "properties": {
+        "dataset_revision": {"type": ["string", "null"]},
+        "universe_manifest_sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
+        "development_split_seed": {"const": 52},
+        "normalization_fit_split": {"const": "train_only"},
+        "evaluation_route": {"enum": ["final_unseen_test", "nested_group_holdout_cross_validation"]},
+        "final_test_rule": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["minimum_unseen_trajectories", "manifest_sha256", "opened_at_utc"],
+          "properties": {
+            "minimum_unseen_trajectories": {"type": "integer", "minimum": 10},
+            "manifest_sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
+            "opened_at_utc": {"type": ["string", "null"], "format": "date-time"}
+          }
+        },
+        "fallback_rule": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "method",
+            "outer_folds",
+            "outer_fold_manifest_sha256",
+            "selection_scope",
+            "test_language"
+          ],
+          "properties": {
+            "method": {"const": "nested_group_holdout_cross_validation"},
+            "outer_folds": {"const": 5},
+            "outer_fold_manifest_sha256": {
+              "type": ["string", "null"],
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "selection_scope": {"const": "inner_validation_only"},
+            "test_language": {"const": "retrospective_cross_validation"}
+          }
+        }
+      }
+    },
+    "models": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["families", "training_seeds", "matched_seed_policy"],
+      "properties": {
+        "families": {
+          "type": "array",
+          "prefixItems": [
+            {"const": "observed_diagnostic_persistence"},
+            {"const": "latent_state_persistence_decoded"},
+            {"const": "gru"},
+            {"const": "transformer"}
+          ],
+          "items": false
+        },
+        "training_seeds": {"const": [52, 53, 54, 55, 56]},
+        "matched_seed_policy": {"const": "same_training_seeds_and_data_rules_for_all_learned_models"}
+      }
+    },
+    "selection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "split",
+        "primary_metric",
+        "checkpoint_rule",
+        "architecture_rule",
+        "architecture_aggregation",
+        "test_used_for_selection"
+      ],
+      "properties": {
+        "split": {"const": "validation"},
+        "primary_metric": {"const": "trajectory_balanced_flux_rmse"},
+        "checkpoint_rule": {"const": "lowest_validation_trajectory_balanced_latent_rmse"},
+        "architecture_rule": {
+          "const": "within_each_outer_fold_lowest_mean_inner_validation_primary_metric_over_all_matched_training_seeds"
+        },
+        "architecture_aggregation": {
+          "const": "arithmetic_mean_over_matched_training_seeds_within_outer_fold"
+        },
+        "test_used_for_selection": {"const": false}
+      }
+    },
+    "evaluation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "baseline_modes",
+        "analysis_controls",
+        "primary_estimand",
+        "secondary_estimand",
+        "metric_availability",
+        "uncertainty",
+        "secondary_metrics",
+        "units"
+      ],
+      "properties": {
+        "baseline_modes": {
+          "const": ["latent_state_persistence_decoded", "observed_diagnostic_persistence"]
+        },
+        "analysis_controls": {"const": ["diagnostic_head_oracle"]},
+        "primary_estimand": {"const": "paired_selected_model_minus_observed_diagnostic_persistence_per_trajectory_flux_rmse_mean_over_outer_folds_seeds_and_trajectories"},
+        "secondary_estimand": {"const": "paired_selected_model_minus_latent_state_persistence_decoded_per_trajectory_latent_mse_mean_over_outer_folds_seeds_and_trajectories"},
+        "metric_availability": {
+          "const": {
+            "observed_diagnostic_persistence": ["flux", "spectra"],
+            "latent_state_persistence_decoded": ["latent", "flux", "spectra"],
+            "diagnostic_head_oracle": ["flux", "spectra"]
+          }
+        },
+        "uncertainty": {"const": "paired_hierarchical_bootstrap_over_training_seeds_and_trajectories"},
+        "secondary_metrics": {
+          "const": ["headline_sqrt_mean_trajectory_mse", "flux_mae", "latent_mse", "per_target_spectra_relative_l2", "per_target_spectra_shape_correlation"]
+        },
+        "units": {"const": "preprocessed_target_units_unless_physical_units_are_verified"}
+      }
+    },
+    "reporting": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["negative_result_rule", "spectra_rule", "invalidated_run_rule"],
+      "properties": {
+        "negative_result_rule": {"const": "if_the_interval_includes_zero_report_no_convincing_advantage"},
+        "spectra_rule": {"const": "report_targets_separately_and_do_not_infer_fidelity_from_aggregate_relative_l2"},
+        "invalidated_run_rule": {"const": "retain_with_reason_and_exclude_from_accepted_comparison"}
+      }
+    },
+    "accepted_runs": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/run"}
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {"status": {"enum": ["frozen", "completed", "invalidated"]}},
+        "required": ["status"]
+      },
+      "then": {
+        "properties": {
+          "source": {
+            "anyOf": [
+              {
+                "properties": {"commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"}},
+                "required": ["commit"]
+              },
+              {
+                "properties": {"tag": {"type": "string", "minLength": 1}},
+                "required": ["tag"]
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "data": {
+            "properties": {"evaluation_route": {"const": "nested_group_holdout_cross_validation"}},
+            "required": ["evaluation_route"]
+          }
+        },
+        "required": ["data"]
+      },
+      "then": {
+        "properties": {
+          "accepted_runs": {
+            "items": {
+              "required": ["outer_fold"],
+              "properties": {"outer_fold": {"type": "integer", "minimum": 0, "maximum": 4}}
+            }
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "accepted_runs": {"items": {"not": {"required": ["outer_fold"]}}}
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "run": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["stage", "wandb_run_id", "artifact_manifest_sha256", "status"],
+      "properties": {
+        "model": {
+          "enum": [
+            "observed_diagnostic_persistence",
+            "latent_state_persistence_decoded",
+            "diagnostic_head_oracle",
+            "gru",
+            "transformer"
+          ]
+        },
+        "training_seed": {"enum": [52, 53, 54, 55, 56]},
+        "outer_fold": {"type": ["integer", "null"], "minimum": 0, "maximum": 4},
+        "stage": {"enum": ["encoder-train", "embed", "sequence-train", "validation", "test"]},
+        "wandb_run_id": {"type": ["string", "null"]},
+        "artifact_manifest_sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
+        "status": {"enum": ["accepted", "failed", "invalidated", "retry"]}
+      },
+      "oneOf": [
+        {
+          "properties": {"stage": {"const": "encoder-train"}},
+          "required": ["training_seed"],
+          "not": {"required": ["model"]}
+        },
+        {
+          "properties": {"stage": {"const": "embed"}},
+          "not": {"anyOf": [{"required": ["model"]}, {"required": ["training_seed"]}]}
+        },
+        {
+          "properties": {
+            "stage": {"const": "sequence-train"},
+            "model": {"enum": ["gru", "transformer"]}
+          },
+          "required": ["model", "training_seed"]
+        },
+        {
+          "properties": {
+            "stage": {"enum": ["validation", "test"]},
+            "model": {
+              "enum": [
+                "observed_diagnostic_persistence",
+                "latent_state_persistence_decoded",
+                "diagnostic_head_oracle"
+              ]
+            }
+          },
+          "required": ["model"],
+          "not": {"required": ["training_seed"]}
+        },
+        {
+          "properties": {
+            "stage": {"enum": ["validation", "test"]},
+            "model": {"enum": ["gru", "transformer"]}
+          },
+          "required": ["model", "training_seed"]
+        }
+      ]
+    }
+  }
+}

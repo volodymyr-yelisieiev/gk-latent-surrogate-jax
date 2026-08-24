@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import json
 import math
+import pickle
 from pathlib import Path
 
 import numpy as np
+import pytest
 import yaml
 
 from gk_surrogate import pipeline as pipeline_module
@@ -34,6 +36,8 @@ def _write_rollout_cache(path: Path, *, seed: int = 42) -> None:
     encoder_run = path.parent / "encoder"
     encoder_checkpoint = encoder_run / "checkpoints" / "step_000001"
     encoder_checkpoint.mkdir(parents=True)
+    checkpoint_file = encoder_checkpoint / "checkpoint.pkl"
+    checkpoint_file.write_bytes(pickle.dumps({"step": 1, "params": {}}))
     train_ids = pipeline_module.split_trajectory_ids(trajectory_ids, seed=seed)["train"]
     (encoder_run / "config_resolved.json").write_text(
         json.dumps(
@@ -74,6 +78,7 @@ def _write_rollout_cache(path: Path, *, seed: int = 42) -> None:
         "universe_trajectory_ids": list(trajectory_ids),
         "universe_manifest_sha256": pipeline_module._trajectory_manifest_sha256(trajectory_ids),
         "encoder_checkpoint": str(encoder_checkpoint),
+        "encoder_checkpoint_sha256": pipeline_module._sha256_file(checkpoint_file),
     }
     cache_config = {
         "data": {"backend": "cyclone_kvikio", "seed": seed, "split": "all"},
@@ -148,13 +153,15 @@ def test_rollout_eval_outputs_metrics_json_csv_and_plot(repo_root, tmp_path):
     config = config.model_copy(
         update={
             "output_dir": str(tmp_path / "eval"),
-            "latent_cache": config.latent_cache.model_copy(
+        "latent_cache": config.latent_cache.model_copy(
                 update={
                     "path": str(tmp_path / "smoke_embed_dataset" / "latent_cache.h5"),
                     "encoder_checkpoint_path": enc["checkpoint"],
                     "sequence_checkpoint_path": None,
-                    "use_persistence_baseline": True,
                 }
+            ),
+            "evaluation": config.evaluation.model_copy(
+                update={"baseline_mode": "latent_state_persistence_decoded"}
             ),
         }
     )
@@ -163,6 +170,8 @@ def test_rollout_eval_outputs_metrics_json_csv_and_plot(repo_root, tmp_path):
     assert Path(result["metrics_by_step_csv"]).exists()
     assert Path(result["diagnostic_samples_npz"]).exists()
     assert len(result["mse_by_step"]) == 4
+    assert len(result["mse_by_trajectory"]) == result["num_trajectories"]
+    assert list(result["latent_trajectory_ids"]) == list(result["selected_trajectory_ids"])
     assert len(result["mse_std_by_step"]) == 4
     assert len(result["relative_l2_by_step"]) == 4
     assert result["num_trajectories"] == 1
@@ -184,9 +193,21 @@ def test_rollout_eval_outputs_metrics_json_csv_and_plot(repo_root, tmp_path):
     assert "flux_mse_by_step" in result
     assert "flux_mse_std_by_step" in result
     assert "flux_rmse" in result
+    assert result["trajectory_balanced_flux_rmse"] == pytest.approx(
+        float(np.mean(result["flux_rmse_by_trajectory"]))
+    )
+    assert math.isfinite(float(result["flux_rmse_pooled"]))
     assert "flux_mae" in result
     assert "flux_relative_error" in result
     assert "flux_time_average_error" in result
+    assert result["rollout_method"] == "latent_state_persistence_decoded"
+    assert result["baseline_mode"] == "latent_state_persistence_decoded"
+    assert result["sequence_checkpoint"] == "latent_state_persistence_decoded"
+    assert len(result["latent_cache_sha256"]) == 64
+    assert len(result["encoder_checkpoint_sha256"]) == 64
+    assert "observed_diagnostic_persistence_flux_rmse" in result
+    assert "observed_diagnostic_persistence_flux_rmse_by_trajectory" in result
+    assert "diagnostic_head_oracle_flux_rmse" in result
     assert len(result["flux_rmse_by_trajectory"]) == result["num_trajectories"]
     assert list(result["flux_trajectory_ids"]) == list(result["selected_trajectory_ids"])
     assert "spectra_mse_by_step" in result
@@ -194,6 +215,10 @@ def test_rollout_eval_outputs_metrics_json_csv_and_plot(repo_root, tmp_path):
     assert "spectra_log_mse" in result
     assert "spectra_relative_l2" in result
     assert "spectra_shape_corr" in result
+    assert "observed_diagnostic_persistence_spectra_ky_rmse" in result
+    assert "observed_diagnostic_persistence_spectra_q_rmse" in result
+    assert "diagnostic_head_oracle_spectra_ky_rmse" in result
+    assert "diagnostic_head_oracle_spectra_q_rmse" in result
     for key in (
         "flux_mse_by_step",
         "flux_rmse_by_step",
@@ -212,6 +237,10 @@ def test_rollout_eval_outputs_metrics_json_csv_and_plot(repo_root, tmp_path):
         "spectra_log_mse",
         "spectra_relative_l2",
         "spectra_shape_corr",
+        "observed_diagnostic_persistence_flux_rmse",
+        "diagnostic_head_oracle_flux_rmse",
+        "observed_diagnostic_persistence_spectra_ky_rmse",
+        "diagnostic_head_oracle_spectra_ky_rmse",
     ):
         _assert_finite_metric(result, key)
     assert result["stable"] is True
@@ -220,13 +249,14 @@ def test_rollout_eval_outputs_metrics_json_csv_and_plot(repo_root, tmp_path):
 
 
 def test_rollout_eval_honors_configured_cache_trajectories(repo_root, tmp_path, monkeypatch):
+    monkeypatch.setattr("gk_surrogate.pipeline._requires_complete_protocol", lambda _config: False)
     monkeypatch.setenv("GK_CYCLONE_DATA_ROOT", "/tmp/gk-cyclone-root")
     for index in range(4):
-        monkeypatch.setenv(f"GK_SMALL_VALIDATION_TRAJ_{index}", f"traj-{index}")
+        monkeypatch.setenv(f"GK_VALIDATION_TRAJ_{index}", f"traj-{index}")
     cache_path = tmp_path / "latent_cache.h5"
     _write_rollout_cache(cache_path)
     config = load_config(
-        repo_root / "configs/experiment/server_evaluate_persistence_baseline_small.yaml",
+        repo_root / "configs/experiment/server_evaluate_latent_persistence_medium.yaml",
         command="evaluate-rollout",
     )
     config = config.model_copy(
@@ -234,6 +264,7 @@ def test_rollout_eval_honors_configured_cache_trajectories(repo_root, tmp_path, 
             "output_dir": str(tmp_path / "rollout_subset"),
             "data": config.data.model_copy(
                 update={
+                    "seed": 42,
                     "cyclone": config.data.cyclone.model_copy(update={"trajectories": ("traj-0", "traj-1", "traj-2")})
                 }
             ),
@@ -242,7 +273,13 @@ def test_rollout_eval_honors_configured_cache_trajectories(repo_root, tmp_path, 
                     "path": str(cache_path),
                     "encoder_checkpoint_path": None,
                     "sequence_checkpoint_path": None,
-                    "use_persistence_baseline": True,
+                }
+            ),
+            "evaluation": config.evaluation.model_copy(
+                update={
+                    "baseline_mode": "latent_state_persistence_decoded",
+                    "rollout_steps": 3,
+                    "metrics": ("latent_mse",),
                 }
             ),
         }
@@ -257,7 +294,7 @@ def test_rollout_eval_honors_configured_cache_trajectories(repo_root, tmp_path, 
     assert Path(result["metrics_json"]).exists()
 
 
-def test_rollout_eval_warns_and_continues_without_diagnostic_checkpoint(repo_root, tmp_path):
+def test_rollout_eval_uses_cache_lineage_without_configured_checkpoint(repo_root, tmp_path):
     enc_cfg = load_config(repo_root / "configs/experiment/smoke_encoder_supervised.yaml", command="train-encoder")
     enc_cfg = enc_cfg.model_copy(update={"output_dir": str(tmp_path / "enc")})
     from gk_surrogate.pipeline import train_encoder
@@ -286,19 +323,73 @@ def test_rollout_eval_warns_and_continues_without_diagnostic_checkpoint(repo_roo
                     "path": embedded["latent_cache"],
                     "encoder_checkpoint_path": None,
                     "sequence_checkpoint_path": None,
-                    "use_persistence_baseline": True,
                 }
+            ),
+            "evaluation": config.evaluation.model_copy(
+                update={"baseline_mode": "latent_state_persistence_decoded"}
             ),
         }
     )
     result = evaluate_rollout(config)
-    assert result["diagnostic_heads_loaded"] is False
+    assert result["diagnostic_heads_loaded"] is True
     assert result["diagnostic_metrics_requested"] is True
-    assert result["flux_metrics_computed"] is False
-    assert result["spectra_metrics_computed"] is False
-    assert result["diagnostic_warnings"]
-    assert "flux_mse_by_step" not in result
-    assert "spectra_mse_by_step" not in result
+    assert result["flux_metrics_computed"] is True
+    assert result["spectra_metrics_computed"] is True
+    assert result["diagnostic_warnings"] == []
+    assert "flux_mse_by_step" in result
+    assert "spectra_mse_by_step" in result
+
+    observed_config = config.model_copy(
+        update={
+            "output_dir": str(tmp_path / "eval_observed_persistence"),
+            "evaluation": config.evaluation.model_copy(
+                update={"baseline_mode": "observed_diagnostic_persistence"}
+            ),
+        }
+    )
+    observed = evaluate_rollout(observed_config)
+    assert observed["rollout_method"] == "observed_diagnostic_persistence"
+    assert observed["baseline_mode"] == "observed_diagnostic_persistence"
+    assert observed["sequence_checkpoint"] == "observed_diagnostic_persistence"
+    assert observed["stable"] is True
+    assert list(observed["flux_trajectory_ids"]) == list(observed["selected_trajectory_ids"])
+    assert observed["flux_metrics_computed"] is False
+    assert observed["spectra_metrics_computed"] is False
+    assert observed["diagnostic_warnings"] == []
+    _assert_finite_metric(observed, "flux_mse")
+    _assert_finite_metric(observed, "observed_diagnostic_persistence_flux_rmse")
+    _assert_finite_metric(observed, "diagnostic_head_oracle_flux_rmse")
+    _assert_finite_metric(observed, "observed_diagnostic_persistence_spectra_ky_rmse")
+    _assert_finite_metric(observed, "diagnostic_head_oracle_spectra_ky_rmse")
+
+    diagnostics_disabled = config.model_copy(
+        update={
+            "output_dir": str(tmp_path / "eval_diagnostics_disabled"),
+            "model": config.model.model_copy(
+                update={
+                    "diagnostics": config.model.diagnostics.model_copy(
+                        update={"flux_dim": None, "spectra_dims": {}}
+                    )
+                }
+            ),
+        }
+    )
+    disabled = evaluate_rollout(diagnostics_disabled)
+    assert disabled["diagnostic_heads_loaded"] is False
+    assert disabled["flux_metrics_computed"] is False
+    assert disabled["spectra_metrics_computed"] is False
+    assert len(disabled["diagnostic_warnings"]) == 2
+
+    no_windows = config.model_copy(
+        update={
+            "output_dir": str(tmp_path / "eval_no_windows"),
+            "evaluation": config.evaluation.model_copy(update={"rollout_steps": 100}),
+        }
+    )
+    import pytest
+
+    with pytest.raises(ValueError, match="no valid rollout windows"):
+        evaluate_rollout(no_windows)
 
 
 def test_embed_dataset_accepts_simsiam_checkpoint(repo_root, tmp_path):
@@ -322,3 +413,36 @@ def test_embed_dataset_accepts_simsiam_checkpoint(repo_root, tmp_path):
     )
     result = embed_dataset(embed_cfg)
     assert Path(result["latent_cache"]).exists()
+
+
+def test_rollout_rejects_configured_encoder_mismatch(repo_root, tmp_path):
+    enc_cfg = load_config(repo_root / "configs/experiment/smoke_encoder_supervised.yaml", command="train-encoder")
+    enc_cfg = enc_cfg.model_copy(update={"output_dir": str(tmp_path / "enc")})
+    from gk_surrogate.pipeline import train_encoder
+
+    enc = train_encoder(enc_cfg)
+    embed_cfg = load_config(repo_root / "configs/experiment/smoke_embed_dataset.yaml", command="embed-dataset")
+    embed_cfg = embed_cfg.model_copy(
+        update={
+            "output_dir": str(tmp_path / "embed"),
+            "latent_cache": embed_cfg.latent_cache.model_copy(
+                update={"path": str(tmp_path / "embed/cache.h5"), "encoder_checkpoint_path": enc["checkpoint"]}
+            ),
+        }
+    )
+    embedded = embed_dataset(embed_cfg)
+    config = load_config(repo_root / "configs/experiment/smoke_evaluate_rollout.yaml", command="evaluate-rollout")
+    config = config.model_copy(
+        update={
+            "latent_cache": config.latent_cache.model_copy(
+                update={
+                    "path": embedded["latent_cache"],
+                    "encoder_checkpoint_path": str(tmp_path / "different-checkpoint"),
+                }
+            )
+        }
+    )
+    import pytest
+
+    with pytest.raises(ValueError, match="does not match the latent cache lineage"):
+        evaluate_rollout(config)

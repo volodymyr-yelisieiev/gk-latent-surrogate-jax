@@ -1,6 +1,10 @@
 """Model components for latent gyrokinetic surrogates."""
 
-from gk_surrogate.models.diagnostics import DiagnosticHeads, DiagnosticPredictions
+from gk_surrogate.models.diagnostics import (
+    DiagnosticHeads,
+    DiagnosticPredictions,
+    DirectSnapshotDiagnosticBaseline,
+)
 from gk_surrogate.models.encoders import (
     ConvNDEncoder,
     ExternalEncoderAdapter,
@@ -28,6 +32,7 @@ __all__ = [
     "ConvNDEncoder",
     "DiagnosticHeads",
     "DiagnosticPredictions",
+    "DirectSnapshotDiagnosticBaseline",
     "EncoderOutput",
     "EncoderWithDiagnostics",
     "ExternalEncoderAdapter",
